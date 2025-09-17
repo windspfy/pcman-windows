@@ -10,6 +10,7 @@
 #include "WinUtils.h"
 
 #include "SearchPlugin.h"
+#include "SearchEngineConfig.h"
 #include "OleImage.h"
 
 #ifdef	_COMBO_
@@ -154,6 +155,16 @@ BOOL CApp::InitInstance()
 
 	AppConfig.Load(ConfigPath + CONFIG_FILENAME);
 
+	// Initialize search engine configuration
+	CString searchConfigPath = ConfigPath + "SearchEngines.ini";
+	SearchEngineConfig.SetFilePath(searchConfigPath);
+	if (!SearchEngineConfig.Load())
+	{
+		// Create default config if it doesn't exist
+		SearchEngineConfig.LoadDefaults();
+		SearchEngineConfig.Save();
+	}
+
 #if defined(_COMBO_)
 	// Lite version calls this function before showing popup menu to reduce startup time.
 	// Combo version loads all search plugins here for search bar.
@@ -197,7 +208,7 @@ BOOL CApp::InitInstance()
 	AppConfig.mainwnd_state.Restore(pFrame->m_hWnd);
 	pFrame->UpdateWindow();
 
-//¦pªG¥u¤¹³\°õ¦æ¤@­Ó PCMan¡A«h§âUser data³]¬°1
+//ï¿½pï¿½Gï¿½uï¿½ï¿½ï¿½\ï¿½ï¿½ï¿½ï¿½@ï¿½ï¿½ PCManï¿½Aï¿½hï¿½ï¿½User dataï¿½]ï¿½ï¿½1
 	SetWindowLong(m_pMainWnd->m_hWnd, GWL_USERDATA, !AppConfig.multiple_instance);
 	return TRUE;
 }

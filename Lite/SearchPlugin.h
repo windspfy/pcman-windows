@@ -14,6 +14,7 @@
 #include "pcman.h"
 #include "TermView.h"
 #include "../SimpXmlParser/SimpXmlParser.h"
+#include "SearchEngineConfig.h"
 
 class CSearchPlugin
 {
@@ -85,8 +86,12 @@ public:
 	};
 	
 	HMENU CreateSearchMenu();
+	HMENU CreateSearchMenuFromConfig(CString selectedText = "");
 	HMENU CreateTranMenu(CString TextContent);
 	void LoadAll();
+	
+	// New method to handle search from external config
+	CString GetSearchUrlFromConfig(int index, CString searchTerm);
 
 	int MaxTranLength;
 

@@ -89,7 +89,7 @@ CString CSearchPlugin::ProcessContent(CString theContent){
 	CString returnStr = "";
 	CString tmpStr = "";
 	int counter = 0;
-	if (theContent.Find("¨Ò") > 0)
+	if (theContent.Find("ï¿½ï¿½") > 0)
 	{
 		int startPos, endPos, deletePos, rightLength;
 		CString startStr = "<p>";
@@ -121,7 +121,7 @@ CString CSearchPlugin::ProcessContent(CString theContent){
 		returnStr += findHead(leftStr) + _T(" ; ");
 		counter++;
 
-		//±N·j´M¹Lªº³¡¥÷®³±¼
+		//ï¿½Nï¿½jï¿½Mï¿½Lï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 		int rightLen = theContent.GetLength() - theContent.Find(tagging) - tagging.GetLength();
 		CString rightStr = theContent.Right(rightLen);
 		theContent = rightStr;
@@ -176,7 +176,7 @@ CString CSearchPlugin::GetWebPage(const CString& theUrl)
 		{
 			//dataStore.WriteString(somecode);
 
-			if (somecode.Find("¨Ò") > 0 && ReadCounter == 0)
+			if (somecode.Find("ï¿½ï¿½") > 0 && ReadCounter == 0)
 			{				
 				ReturnContent = somecode;
 				ReadCounter++;
@@ -582,6 +582,57 @@ HMENU CSearchPluginCollection::CreateSearchMenu()
 	}
 
 	return search_menu;
+}
+
+HMENU CSearchPluginCollection::CreateSearchMenuFromConfig(CString selectedText)
+{
+	HMENU search_menu = NULL;
+	
+	// Load search engine configuration
+	extern CString AppPath;
+	CString configPath = AppPath + "\\Config\\SearchEngines.ini";
+	SearchEngineConfig.SetFilePath(configPath);
+	SearchEngineConfig.Load();
+	
+	if (SearchEngineConfig.GetCount() > 0)
+	{
+		search_menu = CreatePopupMenu();
+		
+		for (int i = 0; i < SearchEngineConfig.GetCount(); i++)
+		{
+			const SearchEngineEntry& engine = SearchEngineConfig.GetEngine(i);
+			if (engine.enabled)
+			{
+				CString menuText = engine.name;
+				InsertMenu(search_menu, i, MF_BYPOSITION | MF_STRING, ID_SEARCHPLUGIN00 + i, menuText);
+			}
+		}
+	}
+	
+	return search_menu;
+}
+
+CString CSearchPluginCollection::GetSearchUrlFromConfig(int index, CString searchTerm)
+{
+	// Load search engine configuration
+	extern CString AppPath;
+	CString configPath = AppPath + "\\Config\\SearchEngines.ini";
+	SearchEngineConfig.SetFilePath(configPath);
+	SearchEngineConfig.Load();
+	
+	if (index >= 0 && index < SearchEngineConfig.GetCount())
+	{
+		const SearchEngineEntry& engine = SearchEngineConfig.GetEngine(index);
+		CString url = engine.url;
+		
+		// Replace {searchTerms} placeholder with actual search term
+		url.Replace("{searchTerms}", searchTerm);
+		url.Replace("{searchterm}", searchTerm);  // Alternative placeholder
+		
+		return url;
+	}
+	
+	return "";
 }
 
 HMENU CSearchPluginCollection::CreateTranMenu(CString TextContent)

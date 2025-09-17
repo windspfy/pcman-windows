@@ -398,6 +398,12 @@
       <BrowseInformation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</BrowseInformation>
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">MaxSpeed</Optimization>
     </ClCompile>
+    <ClCompile Include="SearchEngineConfig.cpp">
+      <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
+      <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">EnableFastChecks</BasicRuntimeChecks>
+      <BrowseInformation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</BrowseInformation>
+      <Optimization Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">MaxSpeed</Optimization>
+    </ClCompile>
     <ClCompile Include="SetBkDlg.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">EnableFastChecks</BasicRuntimeChecks>
@@ -541,6 +547,7 @@
     <ClInclude Include="RFC854.H" />
     <ClInclude Include="Rijndael.h" />
     <ClInclude Include="SearchPlugin.h" />
+    <ClInclude Include="SearchEngineConfig.h" />
     <ClInclude Include="SetBkDlg.h" />
     <ClInclude Include="sitelistctrl.h" />
     <ClInclude Include="SitePage.h" />
