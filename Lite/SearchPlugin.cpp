@@ -589,8 +589,8 @@ HMENU CSearchPluginCollection::CreateSearchMenuFromConfig(CString selectedText)
 	HMENU search_menu = NULL;
 	
 	// Load search engine configuration
-	extern CString AppPath;
-	CString configPath = AppPath + "\\Config\\SearchEngines.ini";
+	extern CString ConfigPath;
+	CString configPath = ConfigPath + "SearchEngines.ini";
 	SearchEngineConfig.SetFilePath(configPath);
 	SearchEngineConfig.Load();
 	
@@ -615,8 +615,8 @@ HMENU CSearchPluginCollection::CreateSearchMenuFromConfig(CString selectedText)
 CString CSearchPluginCollection::GetSearchUrlFromConfig(int index, CString searchTerm)
 {
 	// Load search engine configuration
-	extern CString AppPath;
-	CString configPath = AppPath + "\\Config\\SearchEngines.ini";
+	extern CString ConfigPath;
+	CString configPath = ConfigPath + "SearchEngines.ini";
 	SearchEngineConfig.SetFilePath(configPath);
 	SearchEngineConfig.Load();
 	
@@ -625,9 +625,17 @@ CString CSearchPluginCollection::GetSearchUrlFromConfig(int index, CString searc
 		const SearchEngineEntry& engine = SearchEngineConfig.GetEngine(index);
 		CString url = engine.url;
 		
+		// URL encode the search term
+		CString encodedTerm = searchTerm;
+		encodedTerm.Replace(" ", "+");
+		encodedTerm.Replace("&", "%26");
+		encodedTerm.Replace("=", "%3D");
+		encodedTerm.Replace("#", "%23");
+		encodedTerm.Replace("?", "%3F");
+		
 		// Replace {searchTerms} placeholder with actual search term
-		url.Replace("{searchTerms}", searchTerm);
-		url.Replace("{searchterm}", searchTerm);  // Alternative placeholder
+		url.Replace("{searchTerms}", encodedTerm);
+		url.Replace("{searchterm}", encodedTerm);  // Alternative placeholder
 		
 		return url;
 	}

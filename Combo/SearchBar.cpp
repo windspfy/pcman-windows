@@ -163,7 +163,7 @@ void CSearchBar::OnMenuDropDown(NMHDR *pNMHDR, LRESULT *pResult)
 	::MapWindowPoints(m_hWnd, NULL, LPPOINT(&rc), 2);
 	if (nmtb->iItem == ID_WEB_SEARCH)
 	{
-		HMENU pop = SearchPluginCollection.CreateSearchMenu();
+		HMENU pop = SearchPluginCollection.CreateSearchMenuFromConfig();
 		if (AppConfig.search_engine >= 0)
 		{
 			SetMenuDefaultItem(pop, AppConfig.search_engine, MF_BYPOSITION);
