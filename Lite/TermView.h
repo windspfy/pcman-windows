@@ -34,7 +34,7 @@ class CMainFrame;
 #ifdef	_COMBO_
 class CWebConn;
 struct MENUMAPITEM;
-#else	//¦b¤£¤ä´© Web ªºª©¥»¤¤ª½±µ§âTCon©w¸q¦¨MySocket¬Ù¥h³Â·Ð
+#else	//ï¿½bï¿½ï¿½ï¿½ä´© Web ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½TConï¿½wï¿½qï¿½ï¿½MySocketï¿½Ù¥hï¿½Â·ï¿½
 //	typedef		CTelnetConn	CConn;
 #endif
 
@@ -231,6 +231,7 @@ public:
 	afx_msg void OnEditOpenURL(UINT id);
 	afx_msg void OnSearchPlugin(UINT id);
 	afx_msg void OnTranslation();
+	afx_msg void OnTranslationSite(UINT id);
 
 	DECLARE_MESSAGE_MAP()
 protected:

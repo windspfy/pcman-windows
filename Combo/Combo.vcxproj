@@ -392,6 +392,12 @@
       <BrowseInformation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</BrowseInformation>
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">MaxSpeed</Optimization>
     </ClCompile>
+    <ClCompile Include="..\Lite\TranslationSites.cpp">
+      <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
+      <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">EnableFastChecks</BasicRuntimeChecks>
+      <BrowseInformation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</BrowseInformation>
+      <Optimization Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">MaxSpeed</Optimization>
+    </ClCompile>
     <ClCompile Include="..\Lite\SetBkDlg.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">EnableFastChecks</BasicRuntimeChecks>
@@ -575,6 +581,7 @@
     <ClInclude Include="..\Lite\Rijndael.h" />
     <ClInclude Include="..\Lite\Scaler.h" />
     <ClInclude Include="..\Lite\SearchPlugin.h" />
+    <ClInclude Include="..\Lite\TranslationSites.h" />
     <ClInclude Include="..\Lite\SetBkDlg.h" />
     <ClInclude Include="..\Lite\sitelistctrl.h" />
     <ClInclude Include="..\Lite\SitePage.h" />

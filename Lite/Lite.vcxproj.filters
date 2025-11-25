@@ -126,6 +126,9 @@
     <ClCompile Include="SearchPlugin.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TranslationSites.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="SetBkDlg.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -323,6 +326,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SearchPlugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TranslationSites.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="SetBkDlg.h">

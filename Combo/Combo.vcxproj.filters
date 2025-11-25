@@ -135,6 +135,9 @@
     <ClCompile Include="..\Lite\SearchPlugin.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\Lite\TranslationSites.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="..\Lite\SetBkDlg.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -356,6 +359,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\Lite\SearchPlugin.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\Lite\TranslationSites.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\Lite\SetBkDlg.h">
