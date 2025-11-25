@@ -88,6 +88,9 @@ private:
 extern CTranslationSiteManager g_TranslationSites;
 
 // Configuration filename constant
-const char TRANSLATION_SITES_FILENAME[] = "TranslationSites";
+extern const char TRANSLATION_SITES_FILENAME[];
+
+// Maximum number of translation sites in menu
+const int MAX_TRANSLATION_SITES_IN_MENU = 16;
 
 #endif // !defined(AFX_TRANSLATIONSITES_H__INCLUDED_)

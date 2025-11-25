@@ -995,7 +995,9 @@ void CTermView::OnContextMenu(CWnd* pWnd, CPoint point)
 		InsertMenuItem(parent->edit_menu, 5, TRUE, &search_menuiteminfo);
 
 		// Add translation sites submenu if there are configured sites
-		if (g_TranslationSites.GetEnabledCount() > 0)
+		// and selection is not too long
+		if (g_TranslationSites.GetEnabledCount() > 0 && 
+			sel.GetLength() <= AppConfig.max_translation_length)
 		{
 			MENUITEMINFO tran_menuiteminfo = { sizeof(MENUITEMINFO) };
 			tran_menuiteminfo.fMask =  MIIM_ID | MIIM_DATA | MIIM_TYPE | MIIM_SUBMENU;
@@ -1050,7 +1052,8 @@ void CTermView::OnContextMenu(CWnd* pWnd, CPoint point)
 	if (sel.GetLength() > 0)
 	{
 		DeleteMenu(parent->edit_menu, 5, MF_BYPOSITION);
-		if (g_TranslationSites.GetEnabledCount() > 0)
+		if (g_TranslationSites.GetEnabledCount() > 0 && 
+			sel.GetLength() <= AppConfig.max_translation_length)
 		{
 			DeleteMenu(parent->edit_menu, 5, MF_BYPOSITION);
 		}

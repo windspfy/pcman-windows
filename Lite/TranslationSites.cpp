@@ -13,10 +13,11 @@ static char THIS_FILE[] = __FILE__;
 #endif
 
 //////////////////////////////////////////////////////////////////////
-// Global instance
+// Global instance and constants
 //////////////////////////////////////////////////////////////////////
 
 CTranslationSiteManager g_TranslationSites;
+const char TRANSLATION_SITES_FILENAME[] = "TranslationSites";
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -45,17 +46,30 @@ BOOL CTranslationSiteManager::Load(LPCTSTR configPath)
 
 	m_sites.RemoveAll();
 
-	DWORD len = (DWORD)file.GetLength();
-	if (len == 0)
+	ULONGLONG ullLen = file.GetLength();
+	// Limit file size to 1MB for config files
+	if (ullLen == 0 || ullLen > 1024 * 1024)
 	{
 		file.Close();
 		return FALSE;
 	}
+	DWORD len = (DWORD)ullLen;
 
-	char* buf = new char[len + 1];
-	file.Read(buf, len);
-	file.Close();
-	buf[len] = '\0';
+	char* buf = NULL;
+	try
+	{
+		buf = new char[len + 1];
+		file.Read(buf, len);
+		file.Close();
+		buf[len] = '\0';
+	}
+	catch (...)
+	{
+		if (buf)
+			delete[] buf;
+		file.Close();
+		return FALSE;
+	}
 
 	char* line = buf;
 	char* nextline = NULL;
@@ -205,8 +219,34 @@ CString CTranslationSiteManager::GetUrl(int index, LPCTSTR searchTerm)
 	if (index < 0 || index >= m_sites.GetSize())
 		return "";
 
+	// URL encode the search term
+	CString encodedTerm;
+	char hex[5];
+	const unsigned char* pch = (const unsigned char*)searchTerm;
+	while (*pch)
+	{
+		unsigned char ch = *pch;
+		if (isalnum(ch))  // 'A'-'Z', 'a'-'z', '0'-'9'
+		{
+			encodedTerm += (char)ch;
+		}
+		else if (ch == ' ')  // space
+		{
+			encodedTerm += '+';
+		}
+		else if (ch <= 127 && strchr("-_.!~*'()", ch))  // unreserved
+		{
+			encodedTerm += (char)ch;
+		}
+		else
+		{
+			encodedTerm += CharToHex(ch, hex);
+		}
+		pch++;
+	}
+
 	CString url = m_sites[index].url;
-	url.Replace("{searchTerms}", searchTerm);
+	url.Replace("{searchTerms}", encodedTerm);
 	return url;
 }
 
@@ -264,7 +304,7 @@ HMENU CTranslationSiteManager::CreateTranslationSitesMenu()
 	HMENU menu = CreatePopupMenu();
 	
 	int menuIndex = 0;
-	for (int i = 0; i < m_sites.GetSize() && menuIndex < 16; i++)
+	for (int i = 0; i < m_sites.GetSize() && menuIndex < MAX_TRANSLATION_SITES_IN_MENU; i++)
 	{
 		if (!m_sites[i].enabled)
 			continue;
