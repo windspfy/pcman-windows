@@ -1,0 +1,11 @@
+# Translation and Query Sites Configuration
+# Format: DisplayName=URLTemplate
+# Use {searchTerms} as placeholder for search text
+# Add ,0 at end to disable a site
+#
+
+Dr.eye 譯典通=http://www.dreye.com/axis/ddict.jsp?ver=big5&srh_w={searchTerms}
+Google 翻譯=https://translate.google.com/?sl=auto&tl=zh-TW&text={searchTerms}
+Yahoo奇摩字典=https://tw.dictionary.search.yahoo.com/search?p={searchTerms}
+維基百科=https://zh.wikipedia.org/wiki/{searchTerms}
+Google 搜尋=https://www.google.com/search?q={searchTerms}
