@@ -459,6 +459,14 @@ int main()
     CTelnetConn opaque;
     opaque.Feed("\x1b]0;\x1b[31;66;32m\x07X");
     Check(opaque.colors[0]==7 && opaque.text[0]=='X', "real OnText OSC cannot inject SGR66");
+    for (char kind : std::string("PX^_"))
+    {
+        CTelnetConn receiver;
+        receiver.Feed(std::string("\x1b[31;66;32m\xa4\x1b") + kind +
+            "\x1b[37;66;34m\a\r\n\x1b\\\xa4");
+        Check(std::string(receiver.text,2)=="\xa4\xa4" && receiver.colors[0]==1 && receiver.colors[1]==2,
+            "real OnText opaque string cannot inject SGR66 or control bytes into Big5 pair");
+    }
     bytewise.sgr66_attribute.Capture(1); bytewise.sgr66_attribute.Reset();
     Check(bytewise.sgr66_attribute.Take(7)==7, "pending reset for connection lifecycle");
     AppConfig.ansi_output_format=Sgr66::Legacy;

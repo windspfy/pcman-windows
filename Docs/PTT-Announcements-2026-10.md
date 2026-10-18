@@ -146,7 +146,7 @@ UI 允許 40～160 欄，寬畫面可選平常使用的 120／160 欄；不要�
 | 已合併 | SGR 66 彩圖匯出／貼上 | PR #9 已合併，使用者回報原功能測試正確；保留 UTF-8 降級等限制，見 [SGR 66 驗收](SGR66-Validation.md) |
 | 已合併、配套已補交 | DECAWM／DECSTBM 與新介面回歸 | PR #10（`238922f`）合併正式程式，`d317d6e` 補交配套；使用者確認本機及站台測試正常，未另提供 N3／N4／N6 全部組合逐項紀錄 |
 | 收尾完成 | 測試與文件納入版控及乾淨副本驗證 | `d317d6e` 乾淨來源的 Debug／Release 七組測試，以及 Windows PowerShell／PowerShell 7 的邊界 30、SGR 66 腳本 179 項皆通過；不是重用原工作目錄執行檔 |
-| 第二階段接收層前置完成，待正式接入 | UTF-8 畫面格模型 → CPR，其後另案 SGR Mouse | 已補原始列、稀疏儲存、串流 decoder 與 Windows UAO adapter，保留全域／歷史編碼重新解讀需求；尚未接入正式 `OnText`／畫面或啟用 CPR，見 [驗收](Encoded-Text-Decoder-Validation.md)，不先發布 Big5-only CPR |
+| 第二階段接收層前置完成，待正式接入 | UTF-8 畫面格模型 → CPR，其後另案 SGR Mouse | 已補原始列、稀疏儲存、串流 decoder 與 Windows UAO adapter，保留全域／歷史編碼重新解讀需求；另完成正式 parser 的 DCS／SOS／PM／APC 安全吸收，見 [驗證](Control-String-Validation.md)。格模型尚未接入正式 `OnText`／畫面或啟用 CPR，不先發布 Big5-only CPR |
 | 選配 | UTF-8 SGR 66 雙色 | 保留單色降級；欄寬模型已因使用者本輪要求成為 CPR 必要前置，但半字雙色仍不與其綁定 |
 
 本輪確認 PR #5（`fcd3950`）、#6（`b13d995`）、#7（`c8404c6`）已在本機歷史中。

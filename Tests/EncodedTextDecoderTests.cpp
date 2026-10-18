@@ -290,6 +290,30 @@ struct Framed
 };
 static void FramingCases()
 {
+    for (char kind : std::string("PX^_"))
+    {
+        const std::string opaque = std::string("\x1b") + kind +
+            "\x1b[6n\x1b[31m\x1b[66;32m\x1b[?7l\x1b[?2026h\r\n\a\x1b\\";
+        for (const bool utf8 : {false, true})
+        {
+            const std::string text = utf8 ? std::string("\xe4") + opaque + "\xb8\xad" :
+                std::string("\xa4") + opaque + "\xa4";
+            const std::string input = "\x1b[31m\x1b[66;32m" + text + "\x1b[6n";
+            for (std::size_t cut = 0; cut <= input.size(); ++cut)
+            {
+                Framed receiver;
+                if (!utf8) receiver.decoder.UseLegacy(Legacy{});
+                receiver.Feed(std::string_view(input).substr(0, cut));
+                receiver.Feed(std::string_view(input).substr(cut));
+                Check(receiver.out.size() == 1 && receiver.out[0].scalar == U'中' && receiver.queries == 1 &&
+                    !receiver.decoder.Pending() && Raw(receiver.out) == (utf8 ? u8"中" : "\xa4\xa4"),
+                    "opaque framing preserves split UTF8/Big5 text without injecting queries or payload");
+                Check(receiver.out[0].source.Bytes()[0].style.attribute == 1 &&
+                    receiver.out[0].source.Bytes()[1].style.attribute == 2,
+                    "opaque payload cannot consume or replace the pending SGR66 style");
+            }
+        }
+    }
     const std::string input = "\x1b[31m\x1b[66;32m" + std::string(u8"A中B😀") +
         "\x1b]8;;https://example.com\x1b\\" + std::string(u8"ġ") + "\x1b]8;;\x1b\\\x1b[6n";
     for (std::size_t cut = 0; cut <= input.size(); ++cut)

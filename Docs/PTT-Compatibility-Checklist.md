@@ -116,8 +116,16 @@ PTT 的 `C4 A1`／CPR 探針會依欄位判斷 UTF-8；只新增回覆而沿用�
 新增 `EncodedTextDecoder` 與第十組測試，保留 UTF-8／legacy 跨封包前綴、原始 byte／style、舊編碼切換輸出及解碼錯誤回復；不另維護游標。
 第八／九／十組 Debug／Release／ASAN 各 2,551,215／131,351／325,461 項通過，包含真正 UAO／Shift-JIS 串流。
 使用者確認超過來源額度時中止連線、保留最後完整畫面並顯示原因，不觸發自動重連／自動關閉；正式失敗路徑尚未實作。
-本輪尚未提交，新增 decoder、測試來源與 project 均須納入版控。
+後續已提交 `6458d7a`，新增 decoder、測試來源與 project 均已納入版控。
 **正式 `OnText`／繪圖與 CPR 仍未啟用，第二階段整體未完成**；詳見 [接收層驗證](Encoded-Text-Decoder-Validation.md)。
+
+### CPR 解析安全前置：未支援控制字串（2026-10-18）
+
+正式共用 parser 已補 DCS／SOS／PM／APC 的 7-bit 安全吸收，不儲存／執行內容，不讓內嵌 `CSI 6n`、模式或 OSC 抵達分派器。
+ST 結束、CAN／SUB 取消；BEL 不是這四種字串的結束碼，未結束時不釋出文字，連線 reset 清除狀態。
+Debug／Release 主程式與十組測試均完整重建通過，另有三組 ASAN；最新數量與限制見 [驗證](Control-String-Validation.md)。
+此項已由既有 `OnText` 使用，不是未接入的新 parser；但 UTF-8 decoder／格模型本身仍未接入正式畫面，CPR 仍不回覆。
+下一步仍為來源列／OSC 所有權／接收、顯示、各讀取端及超額失敗處理的一致整合，不跳過使用者要求的全域歷史重新解讀。
 
 ## Keep-Alive：使用者回報測試完成
 

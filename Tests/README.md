@@ -15,7 +15,10 @@ SGR 66 原功能 Debug／Release 主程式均完整重建成功；六組測試�
 本次 SGR 66 測試增加 195 項真實 Windows 選單／說明檢查，合計每組態 197,753 項；
 請先建置同組態的 PCMan 主程式，再建置並執行 `Tests/Sgr66Tests.vcxproj` 的測試程式，因其會唯讀載入主程式的選單資源。
 既有項目順序及索引保持不變；新的 GUI 人工回歸步驟見上述 SGR 66 文件。
-這不是完整的 ECMA-48 終端機實作，DCS 字串協定尚未實作。
+2026-10-18 後續已補 DCS／SOS／PM／APC 的 7-bit 安全吸收，內容協定不實作；內嵌 CSI／OSC 不執行，ST 或取消才恢復解析。
+Debug／Release 主程式與十組測試完整重建通過；最新 parser **17,765**、邊界 **1,280**、SGR 66 **197,757**、文字 decoder **326,841** 項，其他組維持既有數量。
+另有 parser／邊界／文字 decoder 三組 ASAN 通過；界線及規則見 [控制字串驗證](../Docs/Control-String-Validation.md)。
+這不是完整的 ECMA-48 終端機實作，UTF-8 格模型仍未接入正式畫面，CPR 仍不回覆。
 不將 Big5／UAO／UTF-8 中的高位元組當成 8-bit C1 控制碼。
 
 2026-10-17 六則公告的程式碼評估與待補驗收，見 [近期公告評估](../Docs/PTT-Announcements-2026-10.md)。

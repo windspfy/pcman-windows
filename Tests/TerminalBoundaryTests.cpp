@@ -74,6 +74,7 @@ public:
     char* pansi_param = ansi_param;
     bool insert_mode = false, is_getting_article = false, is_ansi_editor = false, is_telnet = true;
     unsigned int sends = 0;
+    unsigned int dsrRequests = 0;
     int Send(const void*, int) { ++sends; return 0; }
     CTelnetConn() { ui.telnet = this; CreateBuffer(); }
     ~CTelnetConn() { for (int i = 0; i < site_settings.line_count; ++i) delete[] screen[i]; delete[] screen; }
@@ -126,7 +127,7 @@ public:
     void BackTab(int) {}
     void SetMode(int) {}
     void ResetMode(int) {}
-    void DeviceStatusReport(int) {}
+    void DeviceStatusReport(int) { ++dsrRequests; } // Observe dispatch; production remains a no-op.
     void ScrollUp() {}
     void ScrollDown() {}
     void Feed(std::string input)
@@ -136,6 +137,50 @@ public:
     std::string Row(int y) { return std::string(screen[first_line + y], site_settings.cols_per_page); }
 };
 #include "ProductionBoundaryMethods.inc"
+
+static void CheckOpaqueStrings()
+{
+    const std::string st = "\x1b\\";
+    for (char kind : std::string("PX^_"))
+    {
+        const std::string start = std::string("\x1b") + kind;
+        const std::string input = start + "\x1b[6n\x1b[31m\x1b[?7l\x1b[1;2r\x1b[?2026h"
+            "\x1b]8;;https://example.com\a\r\n\t\b\a" + st;
+        for (std::size_t split = 0; split <= input.size(); ++split)
+        {
+            CTelnetConn t;
+            t.Feed("\x1b[?7h12345678"); // Keep the existing delayed wrap untouched.
+            t.Feed(input.substr(0, split)); t.Feed(input.substr(split));
+            Check(t.Row(0) == "12345678" && t.Row(1) == "        " &&
+                t.cursor_pos == CPoint(8, t.first_line), "opaque input cannot change screen or pending wrap");
+            Check(t.dsrRequests == 0 && t.sends == 0 && t.cur_attr == 7 && t.remote_line_wrap == 1 &&
+                t.scr_top == 0 && t.scr_bottom == 3 && !t.sync_output.Active() && !t.ui.doflash,
+                "production OnText cannot execute opaque queries, modes, SGR or BEL");
+            t.Feed("X");
+            Check(t.Row(1) == "X       " && t.GetLineAttr(t.first_line + 1)[0] == 7 &&
+                !t.osc_links.At(t.screen[t.first_line + 1], 0), "text after ST keeps wrap, color and link scope");
+            t.Feed("\x1b[6n");
+            Check(t.dsrRequests == 1 && t.sends == 0, "outside DSR reaches no-op handler; response remains disabled");
+        }
+        {
+            CTelnetConn t;
+            t.Feed("\x1b[?2026h");
+            t.Feed(start + "\x1b[?2026l\x1b[6n" + st);
+            Check(t.sync_output.Active() && t.dsrRequests == 0, "opaque end-sync cannot publish live frame");
+            t.Feed("\x1b[?2026l");
+            Check(!t.sync_output.Active(), "real end-sync after opaque string still releases frame");
+        }
+        for (const std::string suffix : { std::string(), std::string("\x1b") })
+        {
+            CTelnetConn t;
+            t.Feed(start + "partial" + suffix);
+            t.ClearAllFlags(); // Extracted production lifecycle reset, not a duplicate implementation.
+            t.Feed("NEW\x1b[6n");
+            Check(t.Row(0) == "NEW     " && t.dsrRequests == 1,
+                "production reset removes unfinished opaque state across sessions");
+        }
+    }
+}
 
 static void CheckWrapModes()
 {
@@ -330,6 +375,7 @@ int main()
     Check(t.scr_top == 1 && t.scr_bottom == 2, "DECSTBM sets margins");
     Check(t.cursor_pos == CPoint(0, t.first_line), "DECSTBM homes cursor without a server-supplied CUP");
     CheckWrapModes();
+    CheckOpaqueStrings();
     CheckScrolling();
     CheckResize();
     CheckIntegration();
