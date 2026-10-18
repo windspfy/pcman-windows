@@ -6,6 +6,7 @@ PTT 新介面（主選單、列表、空結果、看板資訊及自訂觸發器�
 解析器補強 7-bit `ESC [`（CSI）解析，保留現有基本指令處理。
 DEC2026 現已加入專用同步處理，見 [同步更新驗收](../Docs/DEC2026-Validation.md)；
 SGR Mouse 仍忽略，CPR 仍由既有空函式處理，不回覆。
+2026-10-18 已完成含 UTF-8 的 CPR 前置[欄寬模型評估](../Docs/UTF8-Cell-Model-Plan.md)及第一階段純 C++ 格模型測試；尚未接入正式顯示或 CPR，既有位元組保留測試不等於 UTF-8 畫面格正確性驗收。
 2026-10-17 已加入 OSC 字串解析與 OSC 8 目標點擊，見 [OSC 實作與驗收](../Docs/OSC-Validation.md)。
 同日後續實作 SGR 66 彩圖匯出／貼上與 Big5 讀回，新增第六組測試及人工工具，見 [SGR 66 實作與驗收](../Docs/SGR66-Validation.md)。
 PowerShell 驗收工具另有 `powershell -NoProfile -File Tests/Test-Sgr66Fixture.ps1`：兩種 PowerShell 環境各通過 179 項檢查，包含真正的本機 TCP 與原腳本重試／略過流程，不執行 PCMan GUI。
@@ -33,6 +34,19 @@ Windows PowerShell／PowerShell 7 各通過邊界 fixture 30、SGR 66 fixture 17
 使用者另提交的 `Start-TerminalBoundaryFixture2.ps1` 保留不動，正式腳本自動回歸仍使用 `Start-TerminalBoundaryFixture.ps1`；後續順序見[待辦清單](../Docs/PTT-Compatibility-Checklist.md#2026-10-18-合併核對與下一步)。
 N5 的解析／接收路徑已有自動測試；2026-10-17 使用者確認兩個 OSC 人工驗收腳本及流程皆正確，
 實際瀏覽 PTT 無特殊異常。本輪 OSC 人工驗收完成，其他 N1～N6 範圍仍依各項狀態記錄。
+
+## UTF-8 畫面格模型測試（第一階段）
+
+新增獨立第八組 `TerminalCellModelTests`，直接使用正式新標頭，沒有 MFC／網路／剪貼簿依賴；尚未接入 PCMan 主程式。
+Debug／Release 各通過 2,286,759 項，另有 ASAN 建置執行通過；固定字寬、零寬／末欄政策與限制見 [格模型驗收](../Docs/Terminal-Cell-Model-Validation.md)。
+本輪既有七組測試亦在兩組態重新建置執行通過；沒有重編主程式或執行新 GUI／站台人工驗收。
+
+```powershell
+MSBuild Tests/TerminalCellModelTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
+./Tests/bin/Debug/TerminalCellModelTests.exe
+MSBuild Tests/TerminalCellModelTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
+./Tests/bin/Release/TerminalCellModelTests.exe
+```
 
 ## 自動測試
 
