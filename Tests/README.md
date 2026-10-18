@@ -20,7 +20,16 @@ SGR 66 原功能 Debug／Release 主程式均完整重建成功；六組測試�
 2026-10-17 六則公告的程式碼評估與待補驗收，見 [近期公告評估](../Docs/PTT-Announcements-2026-10.md)。
 OSC 8 的 payload 不流入文字；完整命令以有界 payload 傳給目標模組，標籤可點擊、右鍵複製網址並優先於文字自動辨識。
 SGR 66 已加入 Big5 匯出／貼上與雙色讀回（UTF-8 接收仍降級），人工驗收見專用文件；
-DECAWM 折行、DECSTBM 邊界及 VCOL 新畫面仍需對應驗證。
+DECAWM 折行切換與 DECSTBM 捲動／Home／resize 已實作，新增第七組 `TerminalBoundaryTests`；
+Debug／Release 各通過邊界 256、解析器 11,759 項，其他五組維持上列通過數。
+本機腳本自動回歸 `powershell -NoProfile -File Tests/Test-TerminalBoundaryFixture.ps1` 通過 30 項；
+人工入口為 `powershell -NoProfile -File Tests/Start-TerminalBoundaryFixture.ps1`（新的 Big5 80×24 loopback 分頁）。
+2026-10-17 使用者確認本機人工流程已完成，實際站台測試也沒有問題；未另提供全部組態／站台／尺寸的逐項結果。
+E 測試須由「選項 → 修改目前連線的設定值 → 站台選項」修改列數，不是修改全域預設或拖曳視窗。
+完整重驗方式、驗收紀錄與限制見 [終端邊界驗收](../Docs/Terminal-Boundary-Validation.md)。
+2026-10-18 核對 PR #10（`238922f`）：只包含三個正式程式檔，未包含本輪測試、腳本與文件。
+上述七組通過數為含本機未提交配套的既有結果，並非純 master 重跑結果；優先補交邊界測試／擷取腳本／fixture 及解析器、SGR 66 測試修改，再由乾淨 checkout 重驗。
+尤其 `Sgr66Tests.cpp` 的接收替身須同步 `remote_line_wrap` 欄位；完整補交範圍見[後續待辦](../Docs/PTT-Compatibility-Checklist.md#2026-10-18-合併核對與下一步)。
 N5 的解析／接收路徑已有自動測試；2026-10-17 使用者確認兩個 OSC 人工驗收腳本及流程皆正確，
 實際瀏覽 PTT 無特殊異常。本輪 OSC 人工驗收完成，其他 N1～N6 範圍仍依各項狀態記錄。
 

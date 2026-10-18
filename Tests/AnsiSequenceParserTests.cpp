@@ -34,7 +34,8 @@ struct Capture
 				Check(parser.Sequence()[parser.Length()] == 0, "terminated command");
 				commands.emplace_back(parser.Sequence(), parser.Length());
 			}
-			else if (result == AnsiSequenceParser::SyncBegin || result == AnsiSequenceParser::SyncEnd)
+			else if (result == AnsiSequenceParser::SyncBegin || result == AnsiSequenceParser::SyncEnd ||
+				result == AnsiSequenceParser::AutoWrapOn || result == AnsiSequenceParser::AutoWrapOff)
 				syncEvents.push_back(result);
 		}
 	}
@@ -134,6 +135,14 @@ int main()
 		{ "7", "8", "D", "M", "E" }, "legacy ESC commands");
 	Expect("\x1b[?2026hHELLO\x1b[?2026l", "HELLO", {}, "DEC2026 never enters legacy dispatcher",
 		{ AnsiSequenceParser::SyncBegin, AnsiSequenceParser::SyncEnd });
+	Expect("\x1b[?7hWRAP\x1b[?7l", "WRAP", {}, "DECAWM bypasses legacy dispatcher",
+		{ AnsiSequenceParser::AutoWrapOn, AnsiSequenceParser::AutoWrapOff });
+	Expect("\x1b[?0007h\x1b[?0007l", "", {}, "DECAWM accepts numeric leading zeros",
+		{ AnsiSequenceParser::AutoWrapOn, AnsiSequenceParser::AutoWrapOff });
+	for (const char* command : { "[?7;1000h", "[?7 h", "[?7:1h", "[?32768h", "[?999999999999999999999h", "[?h" })
+		Expect(std::string("\x1b") + command + "OK", "OK", {}, "unsupported or malformed private mode is completely ignored");
+	Expect("\x1b[?7\x18OK\x1b[?7\x1a!", "OK!", {}, "cancelled DECAWM does not toggle");
+	Expect("\x1b]0;\x1b[?7h\x1b[2;3r\aOK", "OK", {}, "opaque OSC cannot change wrap or margins");
 	for (const char* mode : { "1000", "1002", "1003", "1006" })
 		Expect(std::string("\x1b[?") + mode + "hX\x1b[?" + mode + "l", "X", {}, "mouse ignored");
 	Expect("\x1b[6nOK", "OK", { "[6n" }, "CPR reaches existing no-op handler");

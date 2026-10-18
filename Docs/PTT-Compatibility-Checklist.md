@@ -1,6 +1,6 @@
 # PTT 相容性調整進度
 
-最後更新：2026-10-17
+最後更新：2026-10-18
 
 範圍：PCMan LITE。每次進行本清單相關調整時，同步更新狀態、驗證結果與日期；建議各項獨立提交。
 「待辦」不代表已實作；編譯、自動測試與人工驗證分開記錄。
@@ -29,21 +29,50 @@
 | --- | --- | --- |
 | 已完成 | OSC 字串解析與 OSC 8 超連結 | 已實作、人工驗收完成；有界命令、HTTP／HTTPS 目標點擊、下劃線、右鍵複製及範圍／快照生命週期 |
 | 最小調整已完成 | C/C++ 原始碼編碼 | 35 個 CP950 檔案只轉 UTF-8 BOM，使用者已驗收；隨 PR #8 合併 `77f7cbf`。資源編碼與全面防呆仍為後續維護 |
-| 已實作、待人工驗收／提交 | SGR 66 彩圖匯出／貼上 | 新增自動／傳統／SGR 66 選項，完整 Big5 匯出、舊式貼上轉換及雙色讀回；UTF-8 保留單色降級，見 [SGR 66 驗收](SGR66-Validation.md) |
-| 3 | DECAWM、DECSTBM、VCOL 回歸 | DECAWM 安全忽略且預設不折行；DECSTBM 部分支援但缺游標 Home；VCOL 先驗證列表與個人規則 |
+| 已合併 | SGR 66 彩圖匯出／貼上 | 使用者確認原功能測試正確，功能與全域選單調整已隨 PR #9 合併 `0a8cfaa`；UTF-8 保留單色降級，見 [SGR 66 驗收](SGR66-Validation.md) |
+| 正式程式已合併；測試／文件待補交 | DECAWM、DECSTBM、VCOL 回歸 | PR #10 已合併 `238922f`，包含三個正式程式檔；使用者確認本機及實際站台測試正常，但相關測試、腳本與文件仍留在本機，見 [終端邊界驗收](Terminal-Boundary-Validation.md) |
 | 已涵蓋 | Keep-Alive 推薦路徑 | 自動／TIMING-MARK 已符合主要收發要求；PTT 若手動選自訂按鍵字串仍有干擾風險 |
 
 初評只讀公告與程式碼；同日後續完成 OSC 吸收及 OSC 8 目標功能，驗證範圍見 [OSC 實作與驗收](OSC-Validation.md)。
 Debug／Release 每組通過 OSC 目標 1,343、解析器 11,451、Keep-Alive 2,318、同步 100、文章 810 項；兩組態主程式均編譯成功。
 使用者另確認兩個人工驗收腳本及流程皆正確，實際瀏覽 PTT 也未發現特殊異常；不將自動測試與人工結果混為一談。
-OSC 8 及 C/C++ 最小編碼調整已隨 PR #8 合併。本輪接續 SGR 66；完成人工驗收後，下一項為 DECAWM／DECSTBM／VCOL 邊界回歸。
+OSC 8 及 C/C++ 最小編碼調整已隨 PR #8 合併，SGR 66 與全域選單已隨 PR #9 合併。
+本輪 DECAWM／DECSTBM 正式程式已隨 PR #10 合併；本機及實際站台驗收完成。下一步先補交尚未納入版控的測試／腳本／文件，再依下列順序評估後續功能；CPR／SGR Mouse 尚未開始實作。
 2026-10-17 編碼盤點：174 個版控內原始碼／資源檔中，38 個可用 CP950 無損往返，1 個 UTF-8 BOM、11 個 UTF-8 無 BOM，其餘 124 個為 ASCII。
 以上為轉碼前的盤點；後續只將 35 個 C/C++ 檔案轉為 UTF-8 BOM，不改文字、行尾及編譯設定，不代表資源編碼與全面防呆皆已完成。
 公告排程與實際部署分開記錄；先前的畫面正常回報不擴大成六則公告全數驗收完成。
 
 2026-10-17 SGR 66：新增自動／傳統／新格式選項，完整 Big5 匯出、舊式半字貼上轉換與 Big5 讀回。
 Debug／Release 主程式皆完整重建成功；六組測試每組態通過 SGR 66 197,558、解析器 11,451、Keep-Alive 2,318、同步 100、文章 810、OSC 目標 1,343 項。
-已提供離線及本機接收／貼上工具；GUI、設定保存及 PTT 編輯器仍待使用者人工驗收，尚未提交。
+已提供離線及本機接收／貼上工具；後續使用者確認原功能測試正確，並回報已合併 master，提交紀錄已核對 PR #9。
+全域選單調整另增 195 項檢查，SGR 66 每組態最終為 197,753 項；未以合併紀錄推論所有站台／組態已逐項驗收。
+
+2026-10-17 終端邊界：重新讀取三篇公告原文，實作 DECAWM 單一遠端模式、DECSTBM Home／無效範圍保護、區外 LF、部分區域 scrollback 保護與 resize 重設。
+另修正 resize 列尾 metadata 的越界讀取位移；Debug／Release 主程式與七組測試全部重建執行成功。
+各組態通過邊界 256、解析器 11,759、SGR 66 197,753、Keep-Alive 2,318、同步 100、文章 810、OSC 1,343 項；Windows PowerShell 本機腳本回歸通過 30 項。
+使用者已確認[本機畫面及實際站台驗收](Terminal-Boundary-Validation.md)正常；E 測試需修改「目前連線」列數，而非全域預設。本輪不重寫 UTF-8 欄寬模型，也不宣稱所有站台／組態／尺寸組合已逐項驗證。
+
+## 2026-10-18 合併核對與下一步
+
+本機 `master`、`origin/master` 及遠端 `refs/heads/master` 均為 `238922fa6b1f78f931e54c6a89b9babd2dd6f4fc`（PR #10）。
+功能提交 `3ee286b` 僅含 `Lite/AnsiSequenceParser.h`、`Lite/TelnetConn.cpp`、`Lite/TelnetConn.h`；不能將正式程式合併等同於測試與文件也已合併。
+
+| 順序／分類 | 待辦 | 完成條件／界線 |
+| --- | --- | --- |
+| 1，優先收尾 | 補交 DECAWM／DECSTBM 測試與驗收文件 | 納入下列檔案，在乾淨 checkout 重新驗證 Debug／Release 七組測試及 PowerShell 腳本；既有通過數是本機工作目錄結果，不是純 master 重跑結果 |
+| 2，下一個功能評估 | CPR 游標位置回覆 | 原順序第 5 項，目前 `DeviceStatusReport` 仍為空函式；先釐清畫面列／欄、Big5／UTF-8 與待折行位置，再確認回覆範圍及測試，未核定前維持不回覆 |
+| 3，CPR 之後另案評估 | SGR Mouse | 需協調選字、右鍵、滾輪、滑鼠瀏覽與每連線模式，維持暫緩，不與 CPR 綁在一起實作 |
+| 選配，非公告必要修正 | UTF-8 SGR 66 雙色／欄寬模型 | 目前維持單色降級，不因 Big5 SGR 66 已合併就視為 UTF-8 雙色已完成；屬較大範圍設計 |
+| 獨立維護 | 觸發器 `memstr` 長度邊界與舊驗收補記 | 長度風險尚未修正；跨區塊比對／去重屬不同議題。PR #7 日文整篇複製的實際貼上／ANSI 編輯器結果亦未另有逐項紀錄 |
+
+補交範圍：
+
+- 新增 `Tests/TerminalBoundaryTests.cpp`、`Tests/TerminalBoundaryTests.vcxproj`、`Tests/Extract-BoundaryMethods.ps1`、`Tests/Start-TerminalBoundaryFixture.ps1`、`Tests/Test-TerminalBoundaryFixture.ps1`。
+- 更新 `Tests/AnsiSequenceParserTests.cpp`、`Tests/Sgr66Tests.cpp`；後者的替身需同步新增 `remote_line_wrap`，才能配合已合併的正式接收方法。
+- 新增 `Docs/Terminal-Boundary-Validation.md`，更新本清單、公告評估、新介面回歸及 `Tests/README.md`。
+
+不將個人 `Config.ini`、`Toolbar.bmp`、站台設定、建置產物或另存的 `Tests/Start-TerminalBoundaryFixture2.ps1` 自動列入補交。
+此次只核對狀態並更新文件，未代為提交／推送，也未重新建置或重跑測試；六則公告的本輪已選定相容性工作已完成，不據此宣稱完整終端機相容。
 
 ## Keep-Alive：使用者回報測試完成
 
