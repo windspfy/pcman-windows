@@ -87,5 +87,21 @@ int main(int argc, char** argv)
     rejected = false;
     try { big5(nullptr, 0); } catch (const std::invalid_argument&) { rejected = true; }
     Check(rejected, "empty legacy input rejected without dereference");
+    const EncodedRow colored(std::vector<EncodedRow::Byte>{{'A', {7, 0}},
+        {0xa4, {9, 11}}, {0xa4, {12, 22}}, {'B', {10, 33}}});
+    const auto sliced = colored.SliceLegacy(8, 1, 3, big5);
+    Check(sliced.ReadLegacy(2, big5).Text(0, 2) == U"中" &&
+        sliced.ReadLegacy(2, big5).At(0).style.attribute == 9 &&
+        sliced.ReadLegacy(2, big5).At(1).style.attribute == 12 && sliced.ReadLegacy(2, big5).At(1).style.link == 22,
+        "actual UAO range copy preserves independent half attributes and link identity");
+    const auto edited = colored.ReplaceLegacy(8, 2, 3, EncodedRow("Z", {14, 44}), big5).ReadLegacy(8, big5);
+    Check(edited.Text(0, 4) == U"A ZB" && edited.At(1).style.link == 0 && edited.At(2).style.link == 44 &&
+        edited.At(3).style.link == 33, "actual UAO half overwrite repairs old glyph and preserves untouched targets");
+    Check(colored.CropLegacy(2, big5).ReadLegacy(8, big5).Text(0, 4) == U"A   ", "actual UAO physical crop never preserves half a pair");
+    const EncodedRow boundary(std::vector<EncodedRow::Byte>{{0xa4, {}, false}, {0xa4, {}, true}});
+    Check(boundary.ReadLegacy(4, big5).Text(0, 2) == U"??" && !boundary.ReadLegacy(4, big5).At(1).continuation,
+        "actual UAO decoder cannot pair bytes across text-control boundary");
+    Check(boundary.ReadUtf8(8).Text(0, 4) == U"\ufffd\ufffd" && boundary.Bytes()[1].boundaryBefore,
+        "encoding reinterpretation retains the same raw text-control boundary");
     std::printf("PASS: %u Windows terminal row checks\n", checks);
 }

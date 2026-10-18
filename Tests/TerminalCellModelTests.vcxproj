@@ -30,6 +30,6 @@
     <Link><SubSystem>Console</SubSystem></Link>
   </ItemDefinitionGroup>
   <ItemGroup><ClCompile Include="TerminalCellModelTests.cpp" /></ItemGroup>
-  <ItemGroup><ClInclude Include="..\Lite\TerminalCellModel.h" /><ClInclude Include="..\Lite\PttWidthProfile.h" /><ClInclude Include="..\Lite\EncodedTerminalRow.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\Lite\TerminalCellModel.h" /><ClInclude Include="..\Lite\PttWidthProfile.h" /><ClInclude Include="..\Lite\EncodedTerminalRow.h" /><ClInclude Include="..\Lite\EncodedRowStorage.h" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

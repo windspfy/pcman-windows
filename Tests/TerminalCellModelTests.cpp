@@ -1,5 +1,6 @@
 #include "../Lite/TerminalCellModel.h"
 #include "../Lite/EncodedTerminalRow.h"
+#include "../Lite/EncodedRowStorage.h"
 #include <cstdio>
 #include <cstdlib>
 #include <climits>
@@ -465,6 +466,257 @@ static void CheckEncodedRows()
                 fuzz.Bytes()[byte].style.link == source[byte].style.link, "all raw bytes and attributes survive mixed projections");
     }
 }
+static bool SameSource(const EncodedRow& left, const EncodedRow& right)
+{
+    if (left.Bytes().size() != right.Bytes().size()) return false;
+    for (std::size_t i = 0; i < left.Bytes().size(); ++i)
+    {
+        const auto& a = left.Bytes()[i]; const auto& b = right.Bytes()[i];
+        if (a.value != b.value || a.style.attribute != b.style.attribute ||
+            a.style.link != b.style.link || a.boundaryBefore != b.boundaryBefore) return false;
+    }
+    return true;
+}
+static void CheckEncodedRowEdits()
+{
+    const EncodedRow original(u8"A中B", {9, 17});
+    const auto snapshot = original.ReadUtf8(8);
+    const auto left = original.ReplaceUtf8(8, 1, 2, EncodedRow("X", {12, 22}));
+    const auto right = original.ReplaceUtf8(8, 2, 3, EncodedRow("Y", {10, 33}));
+    Check(left.ReadUtf8(8).Text(0, 4) == U"AX B" && right.ReadUtf8(8).Text(0, 4) == U"A YB",
+        "overwriting either half blanks the complete old wide glyph without shifting following text");
+    Check(left.ReadUtf8(8).At(1).style.attribute == 12 && left.ReadUtf8(8).At(2).style.attribute == 7 &&
+        left.ReadUtf8(8).At(2).style.link == 0 && left.ReadUtf8(8).At(3).style.link == 17,
+        "edit repairs old half attributes/targets and preserves untouched glyph style");
+    Check(snapshot.Text(0, 4) == U"A中B" && OriginalBytes(original) == u8"A中B", "edits leave source and earlier snapshot unchanged");
+    Check(original.ReplaceUtf8(8, 1, 3, EncodedRow{}).ReadUtf8(8).Text(0, 4) == U"A  B", "cell-range erase replaces a complete wide glyph by blank cells");
+    Check(original.ReplaceUtf8(8, 2, 3, EncodedRow{}).ReadUtf8(8).Text(0, 4) == U"A  B", "half-glyph erase also clears its unselected half");
+    Check(original.ReplaceUtf8(8, 1, 4, EncodedRow("Z")).ReadUtf8(8).Text(0, 4) == U"AZ  ", "short replacement pads the requested range instead of pulling suffix left");
+    const auto padded = EncodedRow("A").ReplaceUtf8(8, 5, 6, EncodedRow("X"));
+    Check(padded.ReadUtf8(8).Text(0, 8) == U"A    X  ", "write beyond source end materializes preceding virtual blank cells");
+    Check(EncodedRow{}.ReplaceUtf8(8, 7, 8, EncodedRow("Z")).ReadUtf8(8).Text(0, 8) == U"       Z", "blank source supports a last-column write");
+    const auto wide = EncodedRow("ABCDE").ReplaceUtf8(8, 1, 3, EncodedRow(u8"😀"));
+    Check(wide.ReadUtf8(8).Text(0, 5) == U"A😀DE" && wide.ReadUtf8(8).At(2).continuation,
+        "supplementary replacement consumes two cells not four bytes");
+    Check(original.SliceUtf8(8, 0, 2).ReadUtf8(2).Text(0, 2) == U"A " &&
+        original.SliceUtf8(8, 2, 4).ReadUtf8(2).Text(0, 2) == U" B", "internal range copy pads a cut glyph to preserve cell alignment");
+    Check(original.SliceUtf8(8, 1, 4).ReadUtf8(3).Text(0, 3) == U"中B", "complete range copy preserves wide source once");
+    Check(original.SliceUtf8(8, 4, 8).ReadUtf8(4).Text(0, 4) == U"    ", "internal copy includes virtual right blanks");
+    Check(OriginalBytes(original.CropUtf8(2)) == "A" && original.CropUtf8(2).ReadUtf8(8).Text(0, 8) == U"A       ",
+        "physical crop drops a cut wide glyph and hidden suffix permanently");
+    const auto clipped = EncodedRow(u8"A中\u0301B");
+    const auto edge = clipped.ReadUtf8(2);
+    Check(edge.ColumnForByte(4) == 2 && edge.ColumnForByte(5) == 2, "marks belonging to clipped wide glyph map outside the viewport");
+    Check(clipped.ReplaceUtf8(2, 1, 2, EncodedRow("X")).ReadUtf8(8).Text(0, 3) == U"AXB",
+        "editing a clipped wide lead removes its entire original source including marks");
+    Check(clipped.ReplaceUtf8(2, 0, 1, EncodedRow("Z")).ReadUtf8(8).Text(0, 4) == U"Z中\u0301B",
+        "editing before clipped glyph preserves untouched hidden bytes");
+    Check(clipped.ReplaceUtf8(2, 0, 2, EncodedRow{}).Bytes().empty(), "full clear drops hidden and orphan source instead of resurrecting it later");
+
+    const EncodedRow boundary(std::vector<EncodedRow::Byte>{{0xe4, {}, false}, {0xb8, {}, true}, {0xad, {}, false}});
+    Check(boundary.ReadUtf8(8).Text(0, 6) == U"\ufffd\ufffd\ufffd" && OriginalBytes(boundary) == u8"中",
+        "real text-control boundary prevents adjacent original bytes becoming a false valid UTF8 glyph");
+    Check(SameSource(boundary, boundary.ReplaceUtf8(8, 0, 0, EncodedRow{})), "empty edit preserves raw bytes and decode boundaries exactly");
+    Check(boundary.CropUtf8(4).ReadUtf8(8).Text(0, 4) == U"\ufffd\ufffd", "physical crop respects boundaries between malformed subparts");
+    EncodedRow markBoundary(std::vector<EncodedRow::Byte>{{'A', {}, false}, {0xcc, {}, true}, {0x81, {}, false}});
+    Check(markBoundary.ReadUtf8(4).At(0).text == U"A", "boundary also terminates zero-width attachment");
+    const auto marks = EncodedRow("AB").ReplaceUtf8(4, 1, 2, EncodedRow(u8"\u0301"));
+    Check(marks.ReadUtf8(4).At(0).text == U"A" && marks.ReadUtf8(4).Text(0, 2) == U"A ",
+        "zero-width replacement cannot attach across the edit seam to an untouched glyph");
+    Check(EncodedRow("AB").ReplaceUtf8(8, 0, 2, EncodedRow("\xe4")).ReadUtf8(8).Text(0, 2) == U"\ufffd",
+        "replacement EOF keeps incomplete prefix as its own maximal subpart");
+
+    const EncodedRow legacy("A\xa4\xa4" "B", {13, 32});
+    Check(legacy.ReplaceLegacy(8, 2, 3, EncodedRow("Z"), TestLegacyGlyph).ReadLegacy(8, TestLegacyGlyph).Text(0, 4) == U"A ZB",
+        "legacy edit uses same half-glyph repair rule through its adapter");
+    Check(legacy.CropLegacy(2, TestLegacyGlyph).ReadLegacy(8, TestLegacyGlyph).Text(0, 2) == U"A ", "legacy crop also drops incomplete pair");
+    const auto legacySlice = legacy.SliceLegacy(8, 1, 3, TestLegacyGlyph);
+    Check(legacySlice.ReadLegacy(2, TestLegacyGlyph).Text(0, 2) == U"中" &&
+        legacySlice.Bytes()[1].style.link == 32, "legacy range copy retains original bytes and half styles");
+    const EncodedRow legacyBoundary(std::vector<EncodedRow::Byte>{{0xa4, {}, false}, {0xa4, {}, true}});
+    Check(!legacyBoundary.ReadLegacy(4, TestLegacyGlyph).At(1).continuation,
+        "legacy adapter receives only bytes up to real decode boundary");
+
+    for (const auto& bad : std::vector<std::pair<int,int>>{{-1,1}, {2,1}, {0,9}, {INT_MIN,INT_MAX}})
+    {
+        bool rejected = false;
+        try { original.ReplaceUtf8(8, bad.first, bad.second, EncodedRow("X")); }
+        catch (const std::out_of_range&) { rejected = true; }
+        Check(rejected, "invalid edit range rejected before subtraction or allocation");
+    }
+    bool rejected = false;
+    try { original.ReplaceUtf8(8, 1, 2, EncodedRow(u8"中")); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected && OriginalBytes(original) == u8"A中B", "too-wide replacement rejected atomically");
+    rejected = false;
+    try { original.ReplaceUtf8(8, 1, 1, EncodedRow("X")); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "nonempty insertion into zero cell range rejected");
+    const EncodedRow fullSource(std::string(21120, 'A'));
+    rejected = false;
+    try { fullSource.ReplaceUtf8(160, 0, 1, EncodedRow(u8"ġ")); }
+    catch (const std::length_error&) { rejected = true; }
+    Check(rejected && fullSource.Bytes().size() == 21120 && fullSource.Bytes().front().value == 'A',
+        "edit exceeding source quota leaves original row intact");
+
+    // Independent, already tested stage-one cell grid as an edit oracle. These
+    // are ordinary glyphs; raw recovery/boundary preservation is checked above.
+    Screen expected(16, 1);
+    EncodedRow actual;
+    std::uint32_t random = 0x3de82c17;
+    for (int step = 0; step < 1200; ++step)
+    {
+        random = random * 1664525u + 1013904223u;
+        const int at = static_cast<int>((random >> 8) % 15u);
+        const bool wideGlyph = (random & 3u) == 0;
+        const bool erase = (random & 7u) == 1;
+        const int width = wideGlyph ? 2 : 1;
+        const Style style{static_cast<std::uint8_t>(random >> 16), random & 255u};
+        if (erase) expected.Erase(0, at, at + width);
+        else { expected.MoveTo(0, at); expected.WriteUtf8(wideGlyph ? u8"中" : "Q", style); }
+        actual = actual.ReplaceUtf8(16, at, at + width, erase ? EncodedRow{} : EncodedRow(wideGlyph ? u8"中" : "Q", style));
+        const auto read = actual.ReadUtf8(16);
+        for (int column = 0; column < 16; ++column)
+        {
+            const auto& a = read.At(column); const auto& b = expected.At(0, column);
+            Check(a.text == b.text && a.width == b.width && a.continuation == b.continuation &&
+                a.style.attribute == b.style.attribute && a.style.link == b.style.link,
+                "source edits match cell-grid glyph repair, coordinates and styles");
+        }
+        CheckProjectionInvariant(read, actual.Bytes().size());
+    }
+    Screen resizeExpected(16, 1);
+    EncodedRow resizeActual(u8"A中B😀C", {11, 45});
+    resizeExpected.WriteUtf8(u8"A中B😀C", {11,45});
+    for (int step = 0; step < 500; ++step)
+    {
+        random = random * 1664525u + 1013904223u;
+        if (step % 3 == 0)
+        {
+            const int columns = static_cast<int>((random >> 16) % 15u) + 2;
+            resizeActual = resizeActual.CropUtf8(columns);
+            resizeExpected.Resize(columns, 1);
+        }
+        else
+        {
+            const int columns = resizeExpected.Columns();
+            const int at = static_cast<int>((random >> 8) % static_cast<unsigned int>(columns - 1));
+            const bool wideGlyph = (random & 1u) != 0;
+            const int width = wideGlyph ? 2 : 1;
+            resizeActual = resizeActual.ReplaceUtf8(columns, at, at + width, EncodedRow(wideGlyph ? u8"中" : "X", {9,27}));
+            resizeExpected.MoveTo(0, at); resizeExpected.WriteUtf8(wideGlyph ? u8"中" : "X", {9,27});
+        }
+        const auto read = resizeActual.ReadUtf8(resizeExpected.Columns());
+        for (int column = 0; column < resizeExpected.Columns(); ++column)
+        {
+            const auto& a = read.At(column); const auto& b = resizeExpected.At(0, column);
+            Check(a.text == b.text && a.width == b.width && a.continuation == b.continuation &&
+                a.style.attribute == b.style.attribute && a.style.link == b.style.link,
+                "physical crop and later widening/writes match existing cell-grid resize policy");
+        }
+    }
+}
+static void CheckEncodedRowStorage()
+{
+    char identities[32767] = {};
+    const void* a = &identities[0]; const void* b = &identities[1];
+    const void* c = &identities[2]; const void* d = &identities[3];
+    EncodedRowStorage storage(32767, 1024);
+    for (const auto& identity : identities)
+        Check(storage.TrySet(&identity, EncodedRow{}), "blank history slots require no source allocation");
+    Check(storage.StoredRows() == 0 && storage.SourceBytes() == 0, "maximum blank scrollback remains sparse");
+    Check(storage.TrySet(a, EncodedRow(u8"A中", {9, 19})) && storage.TrySet(b, EncodedRow("B", {10, 20})), "store modified source rows");
+    std::vector<const void*> order = {c, a, b};
+    const auto snapshot = storage.Capture(order);
+    std::rotate(order.begin(), order.begin() + 1, order.end());
+    Check(storage.At(order[0]).ReadUtf8(8).Text(0, 3) == U"A中" &&
+        storage.At(order[1]).ReadUtf8(8).Text(0, 1) == U"B", "source follows existing row-pointer rotation without copying payload");
+    storage.Erase(order.back()); // Recycled blank row from a full-screen scroll.
+    Check(storage.StoredRows() == 2 && storage.SourceBytes() == 5, "recycling another identity does not clear moved source");
+    Check(storage.Copy(c, a), "copy source into another row allocation");
+    Check(storage.TrySet(a, EncodedRow("X")) && storage.At(c).ReadUtf8(8).Text(0, 3) == U"A中", "row copy owns its bytes independently of later overwrite");
+    storage.Move(d, c); // Resize allocates a new row identity.
+    Check(storage.At(c).Bytes().empty() && storage.At(d).ReadUtf8(8).Text(0, 3) == U"A中" && storage.SourceBytes() == 6,
+        "resize identity move removes old address and preserves payload accounting");
+    storage.Erase(d); storage.Erase(b);
+    Check(storage.StoredRows() == 1 && snapshot[1].ReadUtf8(8).Text(0, 3) == U"A中" &&
+        snapshot[1].ReadUtf8(8).At(1).style.link == 19, "presentation snapshot survives source recycle/release with styles");
+    storage.Move(a, c);
+    Check(storage.StoredRows() == 0 && storage.SourceBytes() == 0, "moving virtual blank clears an occupied destination");
+
+    EncodedRowStorage quota(2, 6);
+    Check(quota.TrySet(a, EncodedRow("ABC")) && quota.TrySet(b, EncodedRow("DEF")), "exact source quota accepted");
+    const auto before = quota.Capture({a,b});
+    Check(!quota.TrySet(c, EncodedRow("G")) && !quota.TrySet(a, EncodedRow("WXYZ")), "row/source quota rejects new content without eviction");
+    Check(SameSource(quota.At(a), before[0]) && SameSource(quota.At(b), before[1]) && quota.SourceBytes() == 6,
+        "quota failure preserves all previous rows and accounting");
+    quota.Move(c, a);
+    Check(quota.SourceBytes() == 6 && quota.At(a).Bytes().empty() && OriginalBytes(quota.At(c)) == "ABC", "move at full quota needs no duplicated budget");
+    quota.Move(b, c);
+    Check(quota.SourceBytes() == 3 && quota.StoredRows() == 1 && OriginalBytes(quota.At(b)) == "ABC", "moving over occupied destination subtracts discarded payload once");
+    quota.Move(b, b);
+    Check(quota.Copy(b, b) && quota.SourceBytes() == 3, "self move/copy preserves source and quota");
+    Check(quota.Copy(b, a) && quota.SourceBytes() == 0 && quota.StoredRows() == 0, "copying virtual blank also releases destination");
+    const EncodedRow boundary(std::vector<EncodedRow::Byte>{{0xe4, {}, false}, {0xb8, {}, true}, {0xad, {}, false}});
+    Check(quota.TrySet(a, boundary) && quota.Copy(b, a), "storage accepts source with a real decode boundary");
+    Check(SameSource(quota.At(b), boundary), "copy retains decode boundaries not only raw bytes");
+    quota.Reset();
+    Check(quota.StoredRows() == 0 && quota.SourceBytes() == 0 && quota.At(a).Bytes().empty(), "reset drops all old-session row identities and quotas");
+    EncodedRowStorage isolated(2, 8);
+    Check(isolated.TrySet(a, EncodedRow("Y")) && quota.At(a).Bytes().empty(), "same identity in another connection's store is isolated");
+    for (const auto limits : std::vector<std::pair<std::size_t,std::size_t>>{{0,1}, {32768,1}, {1,0}})
+    {
+        bool rejected = false;
+        try { EncodedRowStorage invalid(limits.first, limits.second); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        Check(rejected, "invalid storage quotas rejected before allocation");
+    }
+    bool rejected = false;
+    try { quota.At(nullptr); } catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "null row identity rejected");
+    rejected = false;
+    try { quota.Capture(std::vector<const void*>(65, a)); } catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "presentation capture limited to visible row count");
+    EncodedRowStorage rowQuota(1, 100);
+    Check(rowQuota.TrySet(a, EncodedRow("A")) && !rowQuota.TrySet(b, EncodedRow("B")) &&
+        rowQuota.SourceBytes() == 1, "row-count quota rejects independently of available source-byte budget");
+    rejected = false;
+    try { rowQuota.Move(nullptr, a); } catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected && OriginalBytes(rowQuota.At(a)) == "A", "invalid move destination cannot erase existing source");
+    rejected = false;
+    try { rowQuota.Move(a, nullptr); } catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected && OriginalBytes(rowQuota.At(a)) == "A", "invalid move source cannot erase destination");
+    EncodedRowStorage varied(8, 128);
+    EncodedRow expected[8];
+    std::uint32_t random = 0x1875ca23;
+    for (int step = 0; step < 1000; ++step)
+    {
+        random = random * 1664525u + 1013904223u;
+        const auto from = (random >> 8) % 8u, to = (random >> 16) % 8u;
+        const void* source = &identities[from]; const void* destination = &identities[to];
+        switch (random % 5)
+        {
+        case 0:
+            expected[to] = EncodedRow(std::string((random >> 24) % 8u + 1u, static_cast<char>('A' + to)));
+            Check(varied.TrySet(destination, expected[to]), "bounded generated source write accepted"); break;
+        case 1: varied.Erase(destination); expected[to] = EncodedRow{}; break;
+        case 2: Check(varied.Copy(destination, source), "bounded generated copy accepted"); expected[to] = expected[from]; break;
+        case 3:
+            varied.Move(destination, source);
+            if (from != to) { expected[to] = expected[from]; expected[from] = EncodedRow{}; }
+            break;
+        case 4: varied.Reset(); for (auto& row : expected) row = EncodedRow{}; break;
+        }
+        std::size_t used = 0, count = 0;
+        for (int row = 0; row < 8; ++row)
+        {
+            Check(SameSource(varied.At(&identities[row]), expected[row]), "mixed storage identity operations preserve expected rows");
+            used += expected[row].Bytes().size();
+            if (!expected[row].Bytes().empty()) ++count;
+        }
+        Check(varied.SourceBytes() == used && varied.StoredRows() == count, "mixed storage operations keep exact quota accounting");
+    }
+}
 int main()
 {
     TerminalCells::Screen screen(8, 2);
@@ -482,5 +734,7 @@ int main()
     CheckOperationSequences();
     CheckDecoderSourceLengths();
     CheckEncodedRows();
+    CheckEncodedRowEdits();
+    CheckEncodedRowStorage();
     std::printf("PASS: %u terminal cell model checks\n", checks);
 }

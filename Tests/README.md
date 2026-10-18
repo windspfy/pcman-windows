@@ -65,6 +65,14 @@ MSBuild Tests/WindowsTerminalRowTests.vcxproj /t:Rebuild /p:Configuration=Releas
 ./Tests/bin/Release/WindowsTerminalRowTests.exe Lite/Release/PCMan
 ```
 
+### 第二階段 B：原始列更新與儲存生命週期
+
+延續 A 的兩組測試與相同建置命令，新增來源列覆寫／清除／範圍複製／裁切、真實解碼分界及稀疏列儲存的配額／搬移／回收／快照保護。
+最新 Debug／Release／ASAN 第八組各 **2,551,208** 項，第九組各 **131,344** 項通過。
+第九組仍直接使用正式 UAO converter／B2U；第八組另有混合編輯／裁切及列儲存的固定種子序列測試。
+本輪未重跑舊七組、PowerShell fixture 或主程式建置，正式接收／畫面仍未掛接，CPR 未啟用；目前無新人工 GUI 項目。
+具體政策、測試界線及前輪漏交標頭提醒見 [生命週期驗證](../Docs/Encoded-Row-Lifecycle-Validation.md)。
+
 ## 自動測試
 
 使用 Visual Studio Developer PowerShell，在專案根目錄執行：

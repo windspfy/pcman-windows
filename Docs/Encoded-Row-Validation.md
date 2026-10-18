@@ -4,6 +4,9 @@
 狀態：原始列 Module、Windows／UAO adapter 及測試完成；**尚未接入正式接收／畫面，第二階段整體未完成，CPR 仍不回覆**。
 前置：[格模型方案](UTF8-Cell-Model-Plan.md)、[第一階段驗收](Terminal-Cell-Model-Validation.md)。
 
+後續：A 的測試／文件已提交 `a4ab8af`，但該提交未納入兩個核心標頭，當時結果來自完整工作目錄，不是該提交的乾淨來源驗證。
+第二階段 B 已續作列更新與稀疏儲存；最新界線、檢查數及須補交檔案見 [列生命週期驗證](Encoded-Row-Lifecycle-Validation.md)。下文保留 A 的歷史結果。
+
 ## 已確認的需求
 
 使用者選擇保留全域編碼切換，並重新解讀所有分頁的既有畫面與歷史資料。

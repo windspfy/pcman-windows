@@ -6,6 +6,7 @@
 
 第一階段已由使用者提交為 `5879222`。後續第二階段 A 已新增原始列保存與真正 Windows／UAO adapter；
 最新測試及實作界線見 [原始列保存驗證](Encoded-Row-Validation.md)。下文保留第一階段的政策與歷史測試結果，不表示正式畫面已接入。
+後續第二階段 B 的原始列更新、稀疏儲存及最新驗證另見 [列生命週期](Encoded-Row-Lifecycle-Validation.md)。
 
 ## 本輪檔案與責任
 
