@@ -27,9 +27,10 @@ Debug／Release 各通過邊界 256、解析器 11,759 項，其他五組維持�
 2026-10-17 使用者確認本機人工流程已完成，實際站台測試也沒有問題；未另提供全部組態／站台／尺寸的逐項結果。
 E 測試須由「選項 → 修改目前連線的設定值 → 站台選項」修改列數，不是修改全域預設或拖曳視窗。
 完整重驗方式、驗收紀錄與限制見 [終端邊界驗收](../Docs/Terminal-Boundary-Validation.md)。
-2026-10-18 核對 PR #10（`238922f`）：只包含三個正式程式檔，未包含本輪測試、腳本與文件。
-上述七組通過數為含本機未提交配套的既有結果，並非純 master 重跑結果；優先補交邊界測試／擷取腳本／fixture 及解析器、SGR 66 測試修改，再由乾淨 checkout 重驗。
-尤其 `Sgr66Tests.cpp` 的接收替身須同步 `remote_line_wrap` 欄位；完整補交範圍見[後續待辦](../Docs/PTT-Compatibility-Checklist.md#2026-10-18-合併核對與下一步)。
+2026-10-18 核對 PR #10（`238922f`）只包含三個正式程式檔；後續 `d317d6e` 已補齊測試、腳本及文件，`Sgr66Tests.cpp` 的接收替身亦已同步 `remote_line_wrap`。
+本輪從該提交的 `git archive` 建立乾淨來源副本，Debug／Release 主程式及七組測試均完整重建，全部通過上述數量；不依賴原工作目錄未提交檔案或舊 EXE。
+Windows PowerShell／PowerShell 7 各通過邊界 fixture 30、SGR 66 fixture 179 項檢查。主程式重建仍有警告；使用既有工具鏈及 vcpkg 套件，不是全新作業系統安裝驗證。
+使用者另提交的 `Start-TerminalBoundaryFixture2.ps1` 保留不動，正式腳本自動回歸仍使用 `Start-TerminalBoundaryFixture.ps1`；後續順序見[待辦清單](../Docs/PTT-Compatibility-Checklist.md#2026-10-18-合併核對與下一步)。
 N5 的解析／接收路徑已有自動測試；2026-10-17 使用者確認兩個 OSC 人工驗收腳本及流程皆正確，
 實際瀏覽 PTT 無特殊異常。本輪 OSC 人工驗收完成，其他 N1～N6 範圍仍依各項狀態記錄。
 

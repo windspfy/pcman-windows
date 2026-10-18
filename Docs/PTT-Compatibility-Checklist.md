@@ -30,14 +30,14 @@
 | 已完成 | OSC 字串解析與 OSC 8 超連結 | 已實作、人工驗收完成；有界命令、HTTP／HTTPS 目標點擊、下劃線、右鍵複製及範圍／快照生命週期 |
 | 最小調整已完成 | C/C++ 原始碼編碼 | 35 個 CP950 檔案只轉 UTF-8 BOM，使用者已驗收；隨 PR #8 合併 `77f7cbf`。資源編碼與全面防呆仍為後續維護 |
 | 已合併 | SGR 66 彩圖匯出／貼上 | 使用者確認原功能測試正確，功能與全域選單調整已隨 PR #9 合併 `0a8cfaa`；UTF-8 保留單色降級，見 [SGR 66 驗收](SGR66-Validation.md) |
-| 正式程式已合併；測試／文件待補交 | DECAWM、DECSTBM、VCOL 回歸 | PR #10 已合併 `238922f`，包含三個正式程式檔；使用者確認本機及實際站台測試正常，但相關測試、腳本與文件仍留在本機，見 [終端邊界驗收](Terminal-Boundary-Validation.md) |
+| 已合併、配套已提交並完成乾淨副本驗證 | DECAWM、DECSTBM、VCOL 回歸 | PR #10 合併正式程式 `238922f`；`d317d6e` 補齊測試／腳本／文件，Debug／Release 七組測試及兩種 PowerShell 腳本回歸均通過；本機與實際站台人工驗收正常，見 [終端邊界驗收](Terminal-Boundary-Validation.md) |
 | 已涵蓋 | Keep-Alive 推薦路徑 | 自動／TIMING-MARK 已符合主要收發要求；PTT 若手動選自訂按鍵字串仍有干擾風險 |
 
 初評只讀公告與程式碼；同日後續完成 OSC 吸收及 OSC 8 目標功能，驗證範圍見 [OSC 實作與驗收](OSC-Validation.md)。
 Debug／Release 每組通過 OSC 目標 1,343、解析器 11,451、Keep-Alive 2,318、同步 100、文章 810 項；兩組態主程式均編譯成功。
 使用者另確認兩個人工驗收腳本及流程皆正確，實際瀏覽 PTT 也未發現特殊異常；不將自動測試與人工結果混為一談。
 OSC 8 及 C/C++ 最小編碼調整已隨 PR #8 合併，SGR 66 與全域選單已隨 PR #9 合併。
-本輪 DECAWM／DECSTBM 正式程式已隨 PR #10 合併；本機及實際站台驗收完成。下一步先補交尚未納入版控的測試／腳本／文件，再依下列順序評估後續功能；CPR／SGR Mouse 尚未開始實作。
+本輪 DECAWM／DECSTBM 正式程式已隨 PR #10 合併；本機及實際站台驗收完成，測試／腳本／文件亦已補交並通過乾淨副本驗證。下一個功能評估為 CPR；CPR／SGR Mouse 尚未開始實作。
 2026-10-17 編碼盤點：174 個版控內原始碼／資源檔中，38 個可用 CP950 無損往返，1 個 UTF-8 BOM、11 個 UTF-8 無 BOM，其餘 124 個為 ASCII。
 以上為轉碼前的盤點；後續只將 35 個 C/C++ 檔案轉為 UTF-8 BOM，不改文字、行尾及編譯設定，不代表資源編碼與全面防呆皆已完成。
 公告排程與實際部署分開記錄；先前的畫面正常回報不擴大成六則公告全數驗收完成。
@@ -54,25 +54,28 @@ Debug／Release 主程式皆完整重建成功；六組測試每組態通過 SGR
 
 ## 2026-10-18 合併核對與下一步
 
-本機 `master`、`origin/master` 及遠端 `refs/heads/master` 均為 `238922fa6b1f78f931e54c6a89b9babd2dd6f4fc`（PR #10）。
-功能提交 `3ee286b` 僅含 `Lite/AnsiSequenceParser.h`、`Lite/TelnetConn.cpp`、`Lite/TelnetConn.h`；不能將正式程式合併等同於測試與文件也已合併。
+本機 `master`、`origin/master` 及遠端 `refs/heads/master` 均已更新至 `d317d6e5b47c845556f34f1ab111f3db2ae27c21`。
+PR #10（`238922f`）的功能提交 `3ee286b` 僅含三個正式程式檔；後續使用者以 `d317d6e` 補交測試、腳本及文件，已核對所需配套均納入版控。
+本輪從 `d317d6e` 的 `git archive` 建立全新來源副本，不複製原工作目錄的未提交設定、obj 或測試執行檔；已完成下列重建與回歸。
 
 | 順序／分類 | 待辦 | 完成條件／界線 |
 | --- | --- | --- |
-| 1，優先收尾 | 補交 DECAWM／DECSTBM 測試與驗收文件 | 納入下列檔案，在乾淨 checkout 重新驗證 Debug／Release 七組測試及 PowerShell 腳本；既有通過數是本機工作目錄結果，不是純 master 重跑結果 |
+| 1，已完成收尾 | 補交 DECAWM／DECSTBM 測試與驗收文件 | `d317d6e` 已補交；乾淨來源副本的 Debug／Release 主程式與七組測試全部重建、執行通過，Windows PowerShell／PowerShell 7 各通過邊界腳本 30、SGR 66 腳本 179 項 |
 | 2，下一個功能評估 | CPR 游標位置回覆 | 原順序第 5 項，目前 `DeviceStatusReport` 仍為空函式；先釐清畫面列／欄、Big5／UTF-8 與待折行位置，再確認回覆範圍及測試，未核定前維持不回覆 |
 | 3，CPR 之後另案評估 | SGR Mouse | 需協調選字、右鍵、滾輪、滑鼠瀏覽與每連線模式，維持暫緩，不與 CPR 綁在一起實作 |
 | 選配，非公告必要修正 | UTF-8 SGR 66 雙色／欄寬模型 | 目前維持單色降級，不因 Big5 SGR 66 已合併就視為 UTF-8 雙色已完成；屬較大範圍設計 |
 | 獨立維護 | 觸發器 `memstr` 長度邊界與舊驗收補記 | 長度風險尚未修正；跨區塊比對／去重屬不同議題。PR #7 日文整篇複製的實際貼上／ANSI 編輯器結果亦未另有逐項紀錄 |
 
-補交範圍：
+已補交範圍（`d317d6e`）：
 
 - 新增 `Tests/TerminalBoundaryTests.cpp`、`Tests/TerminalBoundaryTests.vcxproj`、`Tests/Extract-BoundaryMethods.ps1`、`Tests/Start-TerminalBoundaryFixture.ps1`、`Tests/Test-TerminalBoundaryFixture.ps1`。
 - 更新 `Tests/AnsiSequenceParserTests.cpp`、`Tests/Sgr66Tests.cpp`；後者的替身需同步新增 `remote_line_wrap`，才能配合已合併的正式接收方法。
 - 新增 `Docs/Terminal-Boundary-Validation.md`，更新本清單、公告評估、新介面回歸及 `Tests/README.md`。
 
-不將個人 `Config.ini`、`Toolbar.bmp`、站台設定、建置產物或另存的 `Tests/Start-TerminalBoundaryFixture2.ps1` 自動列入補交。
-此次只核對狀態並更新文件，未代為提交／推送，也未重新建置或重跑測試；六則公告的本輪已選定相容性工作已完成，不據此宣稱完整終端機相容。
+使用者亦在該提交納入另存的 `Tests/Start-TerminalBoundaryFixture2.ps1`，保留不動；正式腳本自動回歸仍使用 `Start-TerminalBoundaryFixture.ps1`。
+此次驗證不納入本機個人 `Config.ini`、`Toolbar.bmp`、站台設定或舊建置產物；保留原工作目錄中的個人修改，不代為提交／推送。
+主程式建置仍有警告，並非零警告驗收；依賴既有 Visual Studio／Windows SDK 與已安裝 vcpkg 套件，不宣稱全新 Windows 環境的安裝驗證。
+本輪未再操作 GUI 或登入站台，沿用 10/17 使用者人工驗收紀錄。六則公告的本輪已選定相容性工作已完成，不據此宣稱完整終端機相容。
 
 ## Keep-Alive：使用者回報測試完成
 

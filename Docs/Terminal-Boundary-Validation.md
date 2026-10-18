@@ -2,7 +2,7 @@
 
 日期：2026-10-17。基準：`master` `0a8cfaa`（SGR 66 及全域選單已隨 PR #9 合併）。
 本輪已實作並完成下列自動測試；2026-10-17 使用者確認本機人工流程及實際站台測試均正常，驗收完成。
-2026-10-18 合併核對：正式程式已隨 PR #10 合併至 `master`（`238922f`，功能提交 `3ee286b`）；該 PR 僅含三個正式程式檔，相關測試、腳本與本文件尚未提交。
+2026-10-18 合併核對：正式程式已隨 PR #10 合併至 `master`（`238922f`，功能提交 `3ee286b`）；後續 `d317d6e` 已補交測試、腳本及本文件，並通過乾淨來源副本的重建與自動回歸。
 實際站台驗收由使用者操作；不以工具自動登入、發表文章、刪除信件或修改個人設定。
 
 ## 公告依據與工作範圍
@@ -55,17 +55,24 @@
 - 文章進度仍讀本機最後一列。若其他站台把進度列放在捲動區底而非畫面底部，仍可能保守拒絕／等待；不改成掃描任意畫面猜測進度。
 - 實際站台測試依使用者回報記錄為正常；未提供逐項站台、組態、編碼及尺寸組合，不擴大宣稱所有部署／情境均已驗證。模擬資料本身不是實際 VCOL 畫面驗收證據。
 
-## 合併後待辦
+## 合併與乾淨副本驗證
 
-先補交 `TerminalBoundaryTests.cpp/.vcxproj`、`Extract-BoundaryMethods.ps1`、兩個正式 TerminalBoundary fixture 腳本，
-以及 `AnsiSequenceParserTests.cpp`、`Sgr66Tests.cpp` 的配套修改和相關文件，再以乾淨 checkout 重驗。
-`Sgr66Tests.cpp` 的接收替身需有新增的 `remote_line_wrap`；只取得 PR #10 的三個正式檔案不等於已取得完整測試配套。
-個人設定、建置產物及另存的 `Start-TerminalBoundaryFixture2.ps1` 不在自動補交範圍。
+`d317d6e` 已補交 `TerminalBoundaryTests.cpp/.vcxproj`、`Extract-BoundaryMethods.ps1`、兩個正式 TerminalBoundary fixture 腳本，
+以及 `AnsiSequenceParserTests.cpp`、`Sgr66Tests.cpp` 的配套修改和相關文件。
+`Sgr66Tests.cpp` 的接收替身已同步新增 `remote_line_wrap`；只取得 PR #10 的三個正式檔案不等於已取得完整測試配套。
+使用者亦提交另存的 `Start-TerminalBoundaryFixture2.ps1`，本輪保留不動；正式腳本回歸仍以不帶 `2` 的版本為準。
+
+2026-10-18：由 `git archive d317d6e` 匯出全新暫存來源目錄，不複製原工作目錄的個人修改、obj 或舊 EXE。
+使用 Visual Studio 18 Community 的 MSBuild、專案指定的 v143 工具鏈與既有 Windows SDK；主程式依賴既有 vcpkg 安裝，
+明確設定 `VcpkgInstalledDir` 並停用 `VcpkgManifestInstall`，不重新下載／安裝套件。這是乾淨來源驗證，不是全新作業系統安裝驗證。
+Debug／Release Win32 主程式均完整 `Rebuild` 成功（仍有編譯警告）；再各別 `Rebuild` 並執行全部七組測試，數量如下表，全部通過。
+Windows PowerShell 與 PowerShell 7 各執行 `Test-TerminalBoundaryFixture.ps1`（30 項）及 `Test-Sgr66Fixture.ps1`（179 項），全部通過。
+未啟動 PCMan GUI、登入站台或更動原工作目錄的個人設定；人工結果仍依 10/17 使用者回報。
 後續功能順序見 [合併核對與下一步](PTT-Compatibility-Checklist.md#2026-10-18-合併核對與下一步)。
 
 ## 自動測試
 
-以下為合併前本機工作目錄（含尚未提交的測試配套）之既有驗證紀錄；2026-10-18 僅核對合併與更新文件，未重新執行，不宣稱純 master 已通過相同測試。
+以下為原實作的驗證範圍與數量；2026-10-18 已在包含完整配套的 `master` 提交 `d317d6e` 乾淨來源副本重跑確認。
 
 新增 `Tests/TerminalBoundaryTests.vcxproj`，在建置時擷取正式接收、CSI 分派、游標定位／向右移動、捲動範圍、LF、resize、列初始化、連線狀態重設及文章進度方法。
 畫面／網路 UI 使用替身，文字、顏色、OSC metadata、同步快照與緩衝區指標使用正式方法／模組，不維護一份假的捲動演算法。
