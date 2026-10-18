@@ -552,6 +552,24 @@ static void CheckEncodedRowEdits()
     try { original.ReplaceUtf8(8, 1, 1, EncodedRow("X")); }
     catch (const std::invalid_argument&) { rejected = true; }
     Check(rejected, "nonempty insertion into zero cell range rejected");
+    const auto attached = original.AppendUtf8Marks(8, 1, EncodedRow(u8"\u0301", {12, 24}));
+    Check(attached.ReadUtf8(8).Text(0, 4) == U"A中\u0301B" &&
+        attached.ReadUtf8(8).At(1).style.attribute == 9 && attached.ReadUtf8(8).At(2).style.link == 17 &&
+        OriginalBytes(attached) == u8"A中\u0301B", "receive attachment extends exact source without advancing columns or replacing base style");
+    Check(OriginalBytes(original) == u8"A中B", "mark attachment leaves the previous row snapshot unchanged");
+    for (const auto& badMarks : std::vector<EncodedRow>{EncodedRow("X"), EncodedRow("\xe4"),
+        EncodedRow(std::vector<EncodedRow::Byte>{{0xcc, {}, true}, {0x81, {}, false}})})
+    {
+        bool bad = false;
+        try { original.AppendUtf8Marks(8, 1, badMarks); } catch (const std::invalid_argument&) { bad = true; }
+        Check(bad, "attachment rejects non-mark, incomplete source and real control boundary");
+    }
+    rejected = false;
+    try { original.AppendUtf8Marks(8, 2, EncodedRow(u8"\u0301")); } catch (const std::out_of_range&) { rejected = true; }
+    Check(rejected, "attachment cannot target a wide continuation");
+    rejected = false;
+    try { original.AppendUtf8Marks(8, 7, EncodedRow(u8"\u0301")); } catch (const std::invalid_argument&) { rejected = true; }
+    Check(rejected, "virtual blank is not an old source attachment anchor");
     const EncodedRow fullSource(std::string(21120, 'A'));
     rejected = false;
     try { fullSource.ReplaceUtf8(160, 0, 1, EncodedRow(u8"ġ")); }

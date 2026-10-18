@@ -1,5 +1,6 @@
 #include <afxwin.h>
 #include "../Lite/WindowsTerminalRowDecoder.h"
+#include "../Lite/EncodedTextDecoder.h"
 #include <cstdio>
 #include <cstdlib>
 
@@ -103,5 +104,28 @@ int main(int argc, char** argv)
         "actual UAO decoder cannot pair bytes across text-control boundary");
     Check(boundary.ReadUtf8(8).Text(0, 4) == U"\ufffd\ufffd" && boundary.Bytes()[1].boundaryBefore,
         "encoding reinterpretation retains the same raw text-control boundary");
+    EncodedTextDecoder streaming;
+    streaming.UseLegacy(big5);
+    Check(streaming.CodePage() == 950 && streaming.Feed(0xa4, {9,11}).count == 0 && streaming.Pending(),
+        "real UAO stream adapter holds a lead byte across packet boundaries");
+    const auto decodedPair = streaming.Feed(0xa4, {12,22});
+    Check(decodedPair.count == 1 && decodedPair.glyphs[0].scalar == U'中' && decodedPair.glyphs[0].width == 2 &&
+        decodedPair.glyphs[0].source.ReadLegacy(4, big5).At(1).style.attribute == 12,
+        "real UAO stream completes one two-cell glyph with independent half attributes");
+    streaming.Feed(0xc4); const auto decodedProbe = streaming.Feed(0xa1);
+    Check(decodedProbe.count == 1 && decodedProbe.glyphs[0].width == 2,
+        "real UAO stream counts complete encoding probe as two cells");
+    streaming.Feed(0xa4); const auto oldLead = streaming.UseUtf8();
+    Check(oldLead.count == 1 && oldLead.glyphs[0].codePage == 950 && oldLead.glyphs[0].width == 1 &&
+        oldLead.glyphs[0].source.Bytes()[0].value == 0xa4, "switch from real UAO completes old prefix before UTF8 selection");
+    streaming.Feed(0xc4); const auto utf8Probe = streaming.Feed(0xa1);
+    Check(utf8Probe.count == 1 && utf8Probe.glyphs[0].scalar == U'\u0121' && utf8Probe.glyphs[0].width == 1,
+        "same original probe is one UTF8 cell after explicit switch");
+    streaming.UseLegacy(sjis);
+    Check(streaming.Feed(0x82).count == 0 && streaming.Pending(), "real Shift-JIS stream recognizes a DBCS lead");
+    const auto kana = streaming.Feed(0xa0); const auto halfKana = streaming.Feed(0xb1);
+    Check(kana.count == 1 && kana.glyphs[0].scalar == U'あ' && kana.glyphs[0].width == 2 &&
+        halfKana.count == 1 && halfKana.glyphs[0].scalar == U'ｱ' && halfKana.glyphs[0].width == 1,
+        "real Shift-JIS stream separates double-byte and halfwidth single-byte kana");
     std::printf("PASS: %u Windows terminal row checks\n", checks);
 }

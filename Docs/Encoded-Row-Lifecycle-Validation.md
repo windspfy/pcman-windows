@@ -4,6 +4,9 @@
 狀態：列更新及稀疏列儲存 Module 完成，自動測試通過；**尚未接入 `CTelnetConn`，不是正式接收／繪圖、resize 或 CPR 已完成**。
 需求與前置見 [模型方案](UTF8-Cell-Model-Plan.md)及[第二階段 A](Encoded-Row-Validation.md)。
 
+後續核對：B 已提交 `ba0cc1f`，包含前輪遺漏的兩標頭及 B 的儲存標頭，下文暫存／待提交說明保留為當時紀錄。
+最新接收層前置、測試及使用者確認的額度失敗政策見 [第二階段 C](Encoded-Text-Decoder-Validation.md)；正式路徑仍未掛接。
+
 ## 提交完整性
 
 已核對使用者提交 `a4ab8af`。該提交包含前輪測試／文件及解碼器修改，卻未包含兩個被測試引用的標頭：

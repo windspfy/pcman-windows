@@ -73,6 +73,22 @@ MSBuild Tests/WindowsTerminalRowTests.vcxproj /t:Rebuild /p:Configuration=Releas
 本輪未重跑舊七組、PowerShell fixture 或主程式建置，正式接收／畫面仍未掛接，CPR 未啟用；目前無新人工 GUI 項目。
 具體政策、測試界線及前輪漏交標頭提醒見 [生命週期驗證](../Docs/Encoded-Row-Lifecycle-Validation.md)。
 
+### 第二階段 C：接收串流解碼
+
+新增獨立第十組 `EncodedTextDecoderTests`，直接使用正式新 decoder、既有 ANSI parser／SGR66 helper，無 MFC／網路／剪貼簿依賴。
+最新 Debug／Release／ASAN：第八組 **2,551,215**、第九組 **131,351**、第十組 **325,461** 項均通過。
+涵蓋跨封包、原始來源／style、舊編碼前綴完成、重新選取同編碼、reset、adapter 錯誤回復與所有雙 byte 輸入；第九組另用真正 UAO／Shift-JIS adapter 驗證。
+離線 fixture 只串接共用 parser 與新文字 decoder，不是正式 `OnText` 呼叫鏈、CPR、GUI 或記憶體不足斷線驗收。
+正式接收／繪圖仍未切換，沒有新人工測試；使用者已確認超額停止連線並保留畫面的策略，尚待正式失敗路徑實作。
+詳見 [接收層驗證](../Docs/Encoded-Text-Decoder-Validation.md)。
+
+```powershell
+MSBuild Tests/EncodedTextDecoderTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
+./Tests/bin/Debug/EncodedTextDecoderTests.exe
+MSBuild Tests/EncodedTextDecoderTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
+./Tests/bin/Release/EncodedTextDecoderTests.exe
+```
+
 ## 自動測試
 
 使用 Visual Studio Developer PowerShell，在專案根目錄執行：

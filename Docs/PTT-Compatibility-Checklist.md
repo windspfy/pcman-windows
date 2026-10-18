@@ -15,7 +15,7 @@
 | 2a | 整篇文章複製日文轉碼 | PR #7 已合併；文件尚待補實際貼上／編輯器人工驗收結果 | 與選取複製／右鍵搜尋共用 Unicode 解碼，保留 ANSI 編輯器原始資料 |
 | 3 | 新介面回歸測試 | 本輪初步驗收完成：R1～R8 正常，R9／R10 未使用 | 未逐項確認站台／組態及新版部署；保留後續驗證 |
 | 4 | DEC2026 同步更新 | PR #6 已合併，使用者回報人工驗收通過 | 可見畫面快照、同步期間擷取保護、逾時解除及每連線狀態 |
-| 5 | Cursor Position Report 回覆 | 第二階段資料層續作完成，正式接入／CPR 待實作 | 原始列投影／更新、稀疏儲存與 Windows UAO adapter 已通過測試；尚未掛入正式畫面，目前仍不回覆，見 [生命週期驗證](Encoded-Row-Lifecycle-Validation.md) |
+| 5 | Cursor Position Report 回覆 | 第二階段接收層前置完成，正式接入／CPR 待實作 | 原始列與串流 decoder、正式 Windows UAO adapter 已通過測試；尚未掛入正式 `OnText`／畫面，目前仍不回覆，見 [接收層驗證](Encoded-Text-Decoder-Validation.md) |
 | 6 | SGR Mouse | 暫緩 | 站台滑鼠回報與選字／右鍵／滾輪的協調；目前忽略模式指令 |
 
 黑名單、短網址設定功能維持暫停。Keep-Alive 未回覆時的斷線判定／自動重連另行評估，不納入第一階段。
@@ -62,7 +62,7 @@ PR #10（`238922f`）的功能提交 `3ee286b` 僅含三個正式程式檔；後
 | 順序／分類 | 待辦 | 完成條件／界線 |
 | --- | --- | --- |
 | 1，已完成收尾 | 補交 DECAWM／DECSTBM 測試與驗收文件 | `d317d6e` 已補交；乾淨來源副本的 Debug／Release 主程式與七組測試全部重建、執行通過，Windows PowerShell／PowerShell 7 各通過邊界腳本 30、SGR 66 腳本 179 項 |
-| 2，第二階段進行中 | UTF-8 畫面格模型 → CPR 游標位置回覆 | B 已補列更新、分界與稀疏儲存；Debug／Release／ASAN 第八組各 2,551,208、第九組各 131,344 項；正式接收／顯示／匯出仍待接入，之後才啟用普通 CPR，見 [驗收](Encoded-Row-Lifecycle-Validation.md) |
+| 2，第二階段進行中 | UTF-8 畫面格模型 → CPR 游標位置回覆 | C 已補串流 decoder 及超額失敗需求；Debug／Release／ASAN 第八／九／十組各 2,551,215／131,351／325,461 項；正式接收／顯示／匯出及失敗處理仍待接入，之後才啟用普通 CPR，見 [驗收](Encoded-Text-Decoder-Validation.md) |
 | 3，CPR 之後另案評估 | SGR Mouse | 需協調選字、右鍵、滾輪、滑鼠瀏覽與每連線模式，維持暫緩，不與 CPR 綁在一起實作 |
 | 選配，非公告必要修正 | UTF-8 SGR 66 雙色 | 目前維持單色降級；欄寬模型已因本輪含 UTF-8 的 CPR 要求提升為必要前置工作，但不等於同時承諾 UTF-8 半字雙色 |
 | 獨立維護 | 觸發器 `memstr` 長度邊界與舊驗收補記 | 長度風險尚未修正；跨區塊比對／去重屬不同議題。PR #7 日文整篇複製的實際貼上／ANSI 編輯器結果亦未另有逐項紀錄 |
@@ -108,8 +108,16 @@ PTT 的 `C4 A1`／CPR 探針會依欄位判斷 UTF-8；只新增回覆而沿用�
 已完成資料層的格範圍更新／清除／複製、明確裁切、文字解碼分界，及來源列身分的稀疏儲存／搬移／回收／快照。
 來源保留逐 byte style 與分界，不另持有游標；使用明確額度且失敗保留舊資料。
 第八／九組 Debug／Release／ASAN 各 2,551,208／131,344 項通過；主程式接點尚未掛接，不當作正式捲動／resize／同步已完成。
-本輪尚未提交；須納入前輪遺漏的 `EncodedTerminalRow.h`、`WindowsTerminalRowDecoder.h` 及新增 `EncodedRowStorage.h`。
+後續已提交 `ba0cc1f`，前輪遺漏的 `EncodedTerminalRow.h`、`WindowsTerminalRowDecoder.h` 及新增 `EncodedRowStorage.h` 均已補齊。
 下一步為正式接收／畫面／各讀取與匯出端的一致接入、總額度及拒絕更新處理；沒有新 GUI 人工驗收項目，見 [生命週期驗證](Encoded-Row-Lifecycle-Validation.md)。
+
+### 第二階段 C：接收串流解碼（2026-10-18）
+
+新增 `EncodedTextDecoder` 與第十組測試，保留 UTF-8／legacy 跨封包前綴、原始 byte／style、舊編碼切換輸出及解碼錯誤回復；不另維護游標。
+第八／九／十組 Debug／Release／ASAN 各 2,551,215／131,351／325,461 項通過，包含真正 UAO／Shift-JIS 串流。
+使用者確認超過來源額度時中止連線、保留最後完整畫面並顯示原因，不觸發自動重連／自動關閉；正式失敗路徑尚未實作。
+本輪尚未提交，新增 decoder、測試來源與 project 均須納入版控。
+**正式 `OnText`／繪圖與 CPR 仍未啟用，第二階段整體未完成**；詳見 [接收層驗證](Encoded-Text-Decoder-Validation.md)。
 
 ## Keep-Alive：使用者回報測試完成
 

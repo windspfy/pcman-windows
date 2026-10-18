@@ -12,6 +12,12 @@ namespace TerminalCells
         UINT codePage_;
         CUcs2Conv& big5_;
     public:
+        UINT CodePage() const { return codePage_; }
+        bool IsLead(unsigned char byte) const
+        {
+            return codePage_ == 950 ? byte >= 0x81 && byte <= 0xfe
+                : ::IsDBCSLeadByteEx(codePage_, byte) != FALSE;
+        }
         WindowsRowDecoder(UINT codePage, CUcs2Conv& big5)
             : codePage_(codePage == CP_ACP ? ::GetACP() : codePage), big5_(big5)
         {
@@ -32,7 +38,7 @@ namespace TerminalCells
                 // C4 A1 must still occupy two cells for PTT's encoding probe.
                 const bool pair = codePage_ == 950
                     ? first >= 0x81 && first <= 0xfe && second >= 0x40 && second <= 0xfe
-                    : ::IsDBCSLeadByteEx(codePage_, first) != FALSE;
+                    : IsLead(first);
                 if (pair) length = 2;
             }
             // The existing UAO converter reads a lookahead even at len==1.

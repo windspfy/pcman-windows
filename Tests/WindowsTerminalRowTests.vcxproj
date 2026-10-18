@@ -38,6 +38,6 @@
       <TreatWarningAsError>false</TreatWarningAsError>
     </ClCompile>
   </ItemGroup>
-  <ItemGroup><ClInclude Include="..\Lite\WindowsTerminalRowDecoder.h" /><ClInclude Include="..\Lite\EncodedTerminalRow.h" /></ItemGroup>
+  <ItemGroup><ClInclude Include="..\Lite\WindowsTerminalRowDecoder.h" /><ClInclude Include="..\Lite\EncodedTerminalRow.h" /><ClInclude Include="..\Lite\EncodedTextDecoder.h" /></ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

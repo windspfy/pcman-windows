@@ -184,7 +184,8 @@ namespace TerminalCells
             out.insert(out.end(), static_cast<std::size_t>(count), Byte{});
             if (count) out[at].boundaryBefore = true;
         }
-        static EncodedRow Replace(const Projection& old, int begin, int end, const Projection& replacement)
+        static EncodedRow Replace(const Projection& old, int begin, int end, const Projection& replacement,
+            bool continuedRun = false)
         {
             old.CheckRange(begin, end);
             if (replacement.clipped_ || replacement.extent_ > end - begin)
@@ -211,11 +212,20 @@ namespace TerminalCells
             Append(next, old.source_, 0, first, false);
             Spaces(next, (std::max)(0, left - old.extent_)); // Materialize virtual padding.
             Spaces(next, begin - left); // Repair the unselected half of an old glyph.
-            Append(next, replacement.source_, 0, replacement.source_.size(), true);
+            Append(next, replacement.source_, 0, replacement.source_.size(), !continuedRun);
             Spaces(next, end - begin - replacement.extent_);
             Spaces(next, right - end);
             Append(next, old.source_, last, old.source_.size(), true);
             return EncodedRow(std::move(next));
+        }
+        static EncodedRow WriteGlyph(const Projection& old, int column, const Projection& glyph, bool continuedRun)
+        {
+            if (column < 0 || column >= old.Columns()) throw std::out_of_range("invalid glyph column");
+            if (glyph.glyphs_.size() != 1 || glyph.clipped_ || glyph.extent_ < 1 || glyph.extent_ > 2 ||
+                glyph.glyphs_[0].source.begin != 0 || glyph.glyphs_[0].source.end != glyph.source_.size() ||
+                glyph.extent_ > old.Columns() - column)
+                throw std::invalid_argument("expected one complete fitting source glyph");
+            return Replace(old, column, column + glyph.extent_, glyph, continuedRun);
         }
         static EncodedRow Crop(const Projection& view)
         {
@@ -317,6 +327,44 @@ namespace TerminalCells
             return Replace(old, begin, end, replacement.ReadLegacy((std::max)(1, end - begin), decode));
         }
         EncodedRow CropUtf8(int columns) const { return Crop(ReadUtf8(columns)); }
+        // continuedRun is only for the immediately adjacent write in the same
+        // uninterrupted receive run. It preserves the decoder's source marker;
+        // position changes/overwrites use the default edit seam instead. Without
+        // this distinction UTF8->Big5 reinterpretation would split old raw pairs
+        // at every Unicode scalar rather than at actual control/edit boundaries.
+        EncodedRow WriteUtf8Glyph(int columns, int column, const EncodedRow& glyph, bool continuedRun = false) const
+        {
+            return WriteGlyph(ReadUtf8(columns), column, glyph.ReadUtf8(160), continuedRun);
+        }
+        template<class Decode> EncodedRow WriteLegacyGlyph(int columns, int column, const EncodedRow& glyph,
+            Decode decode, bool continuedRun = false) const
+        {
+            return WriteGlyph(ReadLegacy(columns, decode), column, glyph.ReadLegacy(160, decode), continuedRun);
+        }
+        EncodedRow AppendUtf8Marks(int columns, int leadColumn, const EncodedRow& suffix) const
+        {
+            const auto view = ReadUtf8(columns);
+            if (leadColumn < 0 || leadColumn >= columns || view.At(leadColumn).continuation)
+                throw std::out_of_range("invalid combining attachment cell");
+            Utf8Decoder decoder;
+            const auto check = [](char32_t scalar) {
+                if (scalar < 0xa0 || Width(scalar) != 0)
+                    throw std::invalid_argument("attachment must contain only zero-width text");
+            };
+            for (const auto& byte : suffix.Bytes())
+            {
+                if (byte.boundaryBefore) throw std::invalid_argument("attachment crosses text boundary");
+                decoder.Feed(byte.value, check);
+            }
+            decoder.Finish(check); // Incomplete/invalid prefix is not a mark.
+            const auto source = view.Source(leadColumn);
+            if (source.begin == source.end) throw std::invalid_argument("no source glyph to attach to");
+            std::vector<Byte> next;
+            Append(next, bytes_, 0, source.end, false);
+            Append(next, suffix.Bytes(), 0, suffix.Bytes().size(), false);
+            Append(next, bytes_, source.end, bytes_.size(), false);
+            return EncodedRow(std::move(next));
+        }
         template<class Decode> EncodedRow CropLegacy(int columns, Decode decode) const { return Crop(ReadLegacy(columns, decode)); }
         EncodedRow SliceUtf8(int columns, int begin, int end) const { return Slice(ReadUtf8(columns), begin, end); }
         template<class Decode> EncodedRow SliceLegacy(int columns, int begin, int end, Decode decode) const
