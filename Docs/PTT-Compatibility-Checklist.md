@@ -15,7 +15,7 @@
 | 2a | 整篇文章複製日文轉碼 | PR #7 已合併；文件尚待補實際貼上／編輯器人工驗收結果 | 與選取複製／右鍵搜尋共用 Unicode 解碼，保留 ANSI 編輯器原始資料 |
 | 3 | 新介面回歸測試 | 本輪初步驗收完成：R1～R8 正常，R9／R10 未使用 | 未逐項確認站台／組態及新版部署；保留後續驗證 |
 | 4 | DEC2026 同步更新 | PR #6 已合併，使用者回報人工驗收通過 | 可見畫面快照、同步期間擷取保護、逾時解除及每連線狀態 |
-| 5 | Cursor Position Report 回覆 | 第一階段格模型完成，正式整合／CPR 待實作 | 純 C++ 模型與第八組測試通過，尚未接入正式畫面，目前仍不回覆，見 [格模型驗收](Terminal-Cell-Model-Validation.md) |
+| 5 | Cursor Position Report 回覆 | 第二階段進行中，正式接入／CPR 待實作 | 第一階段 `5879222` 已提交；新增原始列保存／Windows UAO adapter 與第九組測試，尚未接入正式畫面，目前仍不回覆，見 [原始列驗證](Encoded-Row-Validation.md) |
 | 6 | SGR Mouse | 暫緩 | 站台滑鼠回報與選字／右鍵／滾輪的協調；目前忽略模式指令 |
 
 黑名單、短網址設定功能維持暫停。Keep-Alive 未回覆時的斷線判定／自動重連另行評估，不納入第一階段。
@@ -62,7 +62,7 @@ PR #10（`238922f`）的功能提交 `3ee286b` 僅含三個正式程式檔；後
 | 順序／分類 | 待辦 | 完成條件／界線 |
 | --- | --- | --- |
 | 1，已完成收尾 | 補交 DECAWM／DECSTBM 測試與驗收文件 | `d317d6e` 已補交；乾淨來源副本的 Debug／Release 主程式與七組測試全部重建、執行通過，Windows PowerShell／PowerShell 7 各通過邊界腳本 30、SGR 66 腳本 179 項 |
-| 2，第一階段完成，下一步正式整合 | UTF-8 畫面格模型 → CPR 游標位置回覆 | 新增模型 Debug／Release／ASAN 各通過 2,286,759 項；尚未接入畫面、尚未回覆 CPR，接入接收／顯示／匯出後再啟用普通 CPR，見 [驗收](Terminal-Cell-Model-Validation.md) |
+| 2，第二階段進行中 | UTF-8 畫面格模型 → CPR 游標位置回覆 | 原始列保存／編碼投影及 Windows UAO adapter 已完成；Debug／Release／ASAN 第八組各 2,422,207、第九組各 131,339 項；正式接收／顯示／匯出仍待接入，之後才啟用普通 CPR，見 [驗收](Encoded-Row-Validation.md) |
 | 3，CPR 之後另案評估 | SGR Mouse | 需協調選字、右鍵、滾輪、滑鼠瀏覽與每連線模式，維持暫緩，不與 CPR 綁在一起實作 |
 | 選配，非公告必要修正 | UTF-8 SGR 66 雙色 | 目前維持單色降級；欄寬模型已因本輪含 UTF-8 的 CPR 要求提升為必要前置工作，但不等於同時承諾 UTF-8 半字雙色 |
 | 獨立維護 | 觸發器 `memstr` 長度邊界與舊驗收補記 | 長度風險尚未修正；跨區塊比對／去重屬不同議題。PR #7 日文整篇複製的實際貼上／ANSI 編輯器結果亦未另有逐項紀錄 |
@@ -92,7 +92,16 @@ PTT 的 `C4 A1`／CPR 探針會依欄位判斷 UTF-8；只新增回覆而沿用�
 使用者同意開始第一階段後，新增 `TerminalCellModel.h`／`PttWidthProfile.h` 與 `TerminalCellModelTests.cpp/.vcxproj`，尚未接入正式 BBS。
 新組態測試 Debug／Release 各通過 2,286,759 項，ASAN 同樣通過；既有七組測試亦在兩組態完整重建、執行通過。
 新增 Module 沒有 MFC、網路或剪貼簿副作用；正式 `DeviceStatusReport` 保持空函式。文字格模型的 Interface 集中解碼、寬字完整性與游標查詢，不新增 CPR 專用影子游標。
-固定政策及後續接入範圍見 [第一階段驗收](Terminal-Cell-Model-Validation.md)。本輪不重新宣稱主程式編譯／GUI／站台驗收；尚未提交，個人設定保留。
+固定政策及後續接入範圍見 [第一階段驗收](Terminal-Cell-Model-Validation.md)。第一階段已提交 `5879222`；當時未重新宣稱主程式編譯／GUI／站台驗收，個人設定保留。
+
+### 第二階段 A：原始列與編碼重新解讀（2026-10-18）
+
+使用者確認保留全域編碼選單及所有分頁既有畫面／歷史重新解讀，不改成僅影響後續接收。
+新增 `EncodedTerminalRow.h` 與 `WindowsTerminalRowDecoder.h`，將原始 byte／style 與唯讀畫面格投影分開；
+重用正式 UAO converter／B2U，不反向轉碼重建來源，也不另建 CPR 游標。
+第八組 Debug／Release／ASAN 各 2,422,207 項，第九組實際 Windows／UAO 各 131,339 項通過。
+尚未修改正式接收、繪圖、選取、同步或編碼切換流程；本輪尚未提交，**第二階段整體及 CPR 未完成**。
+下一步接入列保存生命週期、接收／顯示／匯出與全域切換；實作政策和驗證限制見 [原始列驗收](Encoded-Row-Validation.md)。
 
 ## Keep-Alive：使用者回報測試完成
 

@@ -15,30 +15,37 @@ namespace TerminalCells
     {
         std::uint32_t value_ = 0;
         unsigned int remaining_ = 0;
+        unsigned int length_ = 0;
         unsigned char minimum_ = 0x80, maximum_ = 0xbf;
     public:
         bool Pending() const { return remaining_ != 0; }
-        void Reset() { value_ = remaining_ = 0; minimum_ = 0x80; maximum_ = 0xbf; }
-        template<class Emit> void Feed(unsigned char byte, Emit emit)
+        void Reset() { value_ = remaining_ = length_ = 0; minimum_ = 0x80; maximum_ = 0xbf; }
+        // The length belongs to the emitted maximal subpart, including invalid
+        // prefixes. This lets stored rows retain original bytes without decoding
+        // errors being irreversibly replaced by the UTF-8 encoding of U+FFFD.
+        template<class Emit> void FeedWithLength(unsigned char byte, Emit emit)
         {
             if (remaining_)
             {
                 if (byte < minimum_ || byte > maximum_)
                 {
-                    Reset(); emit(U'\ufffd');
-                    Feed(byte, emit); // Do not lose the offending ASCII/new lead byte.
+                    const auto length = length_;
+                    Reset(); emit(U'\ufffd', length);
+                    FeedWithLength(byte, emit); // Do not lose the offending ASCII/new lead byte.
                     return;
                 }
                 value_ = (value_ << 6) | (byte & 0x3f);
+                ++length_;
                 minimum_ = 0x80; maximum_ = 0xbf;
                 if (--remaining_ == 0)
                 {
                     const char32_t scalar = static_cast<char32_t>(value_);
-                    Reset(); emit(scalar);
+                    const auto length = length_;
+                    Reset(); emit(scalar, length);
                 }
                 return;
             }
-            if (byte < 0x80) { emit(static_cast<char32_t>(byte)); return; }
+            if (byte < 0x80) { emit(static_cast<char32_t>(byte), 1u); return; }
             if (byte >= 0xc2 && byte <= 0xdf) { value_ = byte & 0x1f; remaining_ = 1; }
             else if (byte >= 0xe0 && byte <= 0xef)
             {
@@ -52,12 +59,21 @@ namespace TerminalCells
                 if (byte == 0xf0) minimum_ = 0x90;
                 if (byte == 0xf4) maximum_ = 0x8f;
             }
-            else emit(U'\ufffd');
+            else { emit(U'\ufffd', 1u); return; }
+            length_ = 1;
+        }
+        template<class Emit> void FinishWithLength(Emit emit)
+        {
+            const auto length = length_; Reset();
+            if (length) emit(U'\ufffd', length);
+        }
+        template<class Emit> void Feed(unsigned char byte, Emit emit)
+        {
+            FeedWithLength(byte, [&](char32_t scalar, unsigned int) { emit(scalar); });
         }
         template<class Emit> void Finish(Emit emit)
         {
-            const bool pending = Pending(); Reset();
-            if (pending) emit(U'\ufffd');
+            FinishWithLength([&](char32_t scalar, unsigned int) { emit(scalar); });
         }
     };
 

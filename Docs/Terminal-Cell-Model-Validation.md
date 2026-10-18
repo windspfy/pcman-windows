@@ -4,6 +4,9 @@
 狀態：第一階段已實作並通過自動測試，尚未接入正式 BBS／ANSI 編輯器、未啟用 CPR。
 前置設計與來源見 [模型方案](UTF8-Cell-Model-Plan.md)及[CPR 研究](CPR-Research.md)。
 
+第一階段已由使用者提交為 `5879222`。後續第二階段 A 已新增原始列保存與真正 Windows／UAO adapter；
+最新測試及實作界線見 [原始列保存驗證](Encoded-Row-Validation.md)。下文保留第一階段的政策與歷史測試結果，不表示正式畫面已接入。
+
 ## 本輪檔案與責任
 
 - `Lite/TerminalCellModel.h`：純 C++17 的 `Utf8Decoder`、`Screen`、`Cell`、`Style` 與呈現快照。

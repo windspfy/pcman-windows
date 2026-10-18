@@ -48,6 +48,23 @@ MSBuild Tests/TerminalCellModelTests.vcxproj /t:Rebuild /p:Configuration=Release
 ./Tests/bin/Release/TerminalCellModelTests.exe
 ```
 
+### 第二階段 A：原始列與 Windows／UAO adapter
+
+使用者確認保留全域編碼切換與既有歷史重新解讀，新增有界原始列保存及格投影，不以轉碼後文字覆蓋原始 bytes。
+第八組目前 Debug／Release／ASAN 各通過 **2,422,207** 項；新增第九組 `WindowsTerminalRowTests` 各通過 **131,339** 項。
+第九組直接編譯正式 `Lite/Ucs2Conv.cpp`，使用版控 B2U，檢查全部雙 byte 配對及單 byte 邊界，並有 GBK／Shift-JIS 與 PTT 探針案例。
+正式接收／畫面仍未接入，CPR 仍不回覆；不是編碼選單、scrollback、GUI 或站台的完整驗收。
+Interface、測試替身／正式 UAO 測試的差別及後續待辦見 [原始列保存驗證](../Docs/Encoded-Row-Validation.md)。
+
+從倉庫根目錄執行（參數為版控 B2U 所在目錄，不讀寫個人 Config）：
+
+```powershell
+MSBuild Tests/WindowsTerminalRowTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
+./Tests/bin/Debug/WindowsTerminalRowTests.exe Lite/Release/PCMan
+MSBuild Tests/WindowsTerminalRowTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
+./Tests/bin/Release/WindowsTerminalRowTests.exe Lite/Release/PCMan
+```
+
 ## 自動測試
 
 使用 Visual Studio Developer PowerShell，在專案根目錄執行：
