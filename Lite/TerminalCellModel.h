@@ -78,6 +78,30 @@ namespace TerminalCells
     };
 
     struct Position { int row = 0, column = 0; bool wrapPending = false; };
+    enum class RightMargin { Wrap, Overwrite, Clip };
+    struct GlyphPlacement
+    {
+        int column = -1; // No write when the glyph cannot fit.
+        int nextColumn = 0; // One past the last cell denotes a filled margin.
+        bool lineFeed = false;
+        bool clearEdge = false;
+    };
+    inline GlyphPlacement PlaceGlyph(int columns, int column, int width, RightMargin margin)
+    {
+        if (column < 0 || width < 1 || width > columns) return {};
+        if (column >= columns)
+        {
+            if (margin == RightMargin::Clip) return {};
+            if (margin == RightMargin::Wrap) return {0, width, true, false};
+            column = columns - 1;
+        }
+        if (width > columns - column)
+        {
+            if (margin == RightMargin::Wrap) return {0, width, true, true};
+            return {};
+        }
+        return {column, column + width, false, false};
+    }
     struct Style
     {
         std::uint8_t attribute = 7;
@@ -144,20 +168,12 @@ namespace TerminalCells
                 if (text.size() < 33) text += scalar; // Bound hostile zero-width runs.
                 return;
             }
-            if (width > columns_) return; // A one-column viewport cannot fit a wide glyph.
-            if (cursor_.wrapPending)
-            {
-                cursor_.wrapPending = false;
-                if (autoWrap_) { cursor_.column = 0; AdvanceRow(); }
-            }
-            if (width == 2 && cursor_.column == columns_ - 1)
-            {
-                // Atomic wide glyph: blank the edge and wrap, or omit if disabled.
-                if (!autoWrap_ || columns_ < 2) return;
-                ClearGlyph(cursor_.row, cursor_.column);
-                cursor_.column = 0; AdvanceRow();
-            }
-            const int column = cursor_.column;
+            const auto placement = PlaceGlyph(columns_, cursor_.wrapPending ? columns_ : cursor_.column,
+                width, autoWrap_ ? RightMargin::Wrap : RightMargin::Overwrite);
+            if (placement.column < 0) return;
+            if (placement.clearEdge) ClearGlyph(cursor_.row, cursor_.column);
+            if (placement.lineFeed) AdvanceRow();
+            const int column = placement.column;
             ClearGlyph(cursor_.row, column);
             if (width == 2) ClearGlyph(cursor_.row, column + 1);
             auto& lead = grid_[cursor_.row][column];
@@ -170,12 +186,8 @@ namespace TerminalCells
                 trail.text.clear(); trail.style = style; trail.width = 0;
                 trail.continuation = true;
             }
-            if (column + width == columns_)
-            {
-                cursor_.column = columns_ - 1;
-                cursor_.wrapPending = autoWrap_;
-            }
-            else cursor_.column += width;
+            cursor_.wrapPending = autoWrap_ && placement.nextColumn == columns_;
+            cursor_.column = (std::min)(placement.nextColumn, columns_ - 1);
         }
     public:
         Screen(int columns, int rows) : columns_(columns), rows_(rows), bottom_(0)

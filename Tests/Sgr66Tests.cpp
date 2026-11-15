@@ -9,6 +9,7 @@
 #include <vector>
 #include <algorithm>
 #include "../Lite/Sgr66.h"
+#include "../Lite/TerminalCellModel.h"
 #include "../Lite/SynchronizedOutput.h"
 #include "../Lite/KeepAlive.h"
 #include "../Lite/OscHyperlinks.h"

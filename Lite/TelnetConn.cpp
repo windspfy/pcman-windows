@@ -511,52 +511,41 @@ void CTelnetConn::OnText()
 				if (cursor_pos.y > last_line || cursor_pos.y < first_line)
 					break;
 
-				if (!is_ansi_editor && *buf >= ' ' && cursor_pos.x >= site_settings.cols_per_page)
+				if (*buf < ' ') break;
+				auto margin = TerminalCells::RightMargin::Clip;
+				if (!is_ansi_editor)
 				{
-					if (remote_line_wrap < 0 ? site_settings.line_wrap != 0 : remote_line_wrap != 0)
-					{
-						cursor_pos.x = 0;
-						LineFeed();
-					}
-					else if (remote_line_wrap == 0)
-						cursor_pos.x = site_settings.cols_per_page - 1;
+					if (remote_line_wrap == 0) margin = TerminalCells::RightMargin::Overwrite;
+					else if (remote_line_wrap > 0 || site_settings.line_wrap) margin = TerminalCells::RightMargin::Wrap;
 				}
-
-				// FIXME: The cursor_pos.x will be incorrent when buffer is UTF8.
-				if (cursor_pos.x < site_settings.cols_per_page)
+				// The legacy row still has one slot per byte. Decoded writes will
+				// pass the glyph width here when the row can render it by cells.
+				const auto placement = TerminalCells::PlaceGlyph(site_settings.cols_per_page, cursor_pos.x, 1, margin);
+				if (placement.column < 0) break;
+				cursor_pos.x = placement.column;
+				if (placement.lineFeed) LineFeed();
+				LPSTR curstr = screen[cursor_pos.y];
+				LPBYTE pcuratb = GetLineAttr(curstr);
+				if (is_ansi_editor && insert_mode)
 				{
-					LPSTR curstr = screen[cursor_pos.y];
-					LPBYTE pcuratb = GetLineAttr(curstr);
-
-					if (*buf >= ' ')
+					osc_links.Copy(curstr, cursor_pos.x + 1, curstr, cursor_pos.x,
+						site_settings.cols_per_page - cursor_pos.x - 1, site_settings.cols_per_page);
+					for (int i = site_settings.cols_per_page - 1; i > cursor_pos.x; i--)
 					{
-						if (is_ansi_editor && insert_mode)
-						{
-							osc_links.Copy(curstr, cursor_pos.x + 1, curstr, cursor_pos.x,
-								site_settings.cols_per_page - cursor_pos.x - 1, site_settings.cols_per_page);
-							for (int i = site_settings.cols_per_page - 1;i > cursor_pos.x;i--)
-							{
-								curstr[i] = curstr[i-1];
-								pcuratb[i] = pcuratb[i-1];
-							}
-							SetUpdateWholeLine(cursor_pos.y);
-						}
-						else
-						{
-							// reduce unnecessary update.  does this work?
-							if (curstr[cursor_pos.x] != *buf || pcuratb[cursor_pos.x] != text_attr ||
-								osc_links.At(curstr, cursor_pos.x))
-								SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);	//將這行設為等待更新
-						}
-
-						if (osc_links.Write(curstr, cursor_pos.x, site_settings.cols_per_page))
-							SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);
-						pcuratb[cursor_pos.x] = text_attr;
-						curstr[cursor_pos.x] = *buf;
-
-						cursor_pos.x++;
+						curstr[i] = curstr[i-1];
+						pcuratb[i] = pcuratb[i-1];
 					}
+					SetUpdateWholeLine(cursor_pos.y);
 				}
+				else if (curstr[cursor_pos.x] != *buf || pcuratb[cursor_pos.x] != text_attr ||
+					osc_links.At(curstr, cursor_pos.x))
+					SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);
+
+				if (osc_links.Write(curstr, cursor_pos.x, site_settings.cols_per_page))
+					SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);
+				pcuratb[cursor_pos.x] = text_attr;
+				curstr[cursor_pos.x] = *buf;
+				cursor_pos.x = placement.nextColumn;
 			}
 			}
 		}
