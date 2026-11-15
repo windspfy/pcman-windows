@@ -7,6 +7,8 @@
 #include <iterator>
 #include <vector>
 #include "../Lite/ArticleProgress.h"
+#include "../Lite/Sgr66.h"
+#include "../Lite/FrequentText.h"
 #include "../Lite/SynchronizedOutput.h"
 
 static unsigned int checks = 0;
@@ -22,14 +24,25 @@ class CTelnetConn;
 struct CUcs2Conv
 {
     unsigned char* m_Big52Ucs2_Tab = nullptr;
+    unsigned char* m_Ucs22Big5_Tab = nullptr;
+    int m_Ucs2TabSize = 0;
+    void Ucs22Big5(const wchar_t*, char*);
     size_t Big52Ucs2(const char*, wchar_t*, int);
 } g_ucs2conv;
 struct CClipboard
 {
     static CStringW text;
+    static CString stationBytes;
+    static UINT stationCP;
+    static BOOL SetStationText(HWND, const CStringW& value, const CString& bytes, UINT cp)
+    {
+        text = value; stationBytes = bytes; stationCP = cp; return TRUE;
+    }
     static void SetTextW(HWND, const wchar_t* value) { text = value; }
 };
 CStringW CClipboard::text = L"unchanged";
+CString CClipboard::stationBytes;
+UINT CClipboard::stationCP = 0;
 struct CTermView
 {
     HWND m_hWnd = nullptr;
@@ -38,6 +51,7 @@ struct CTermView
     int editorOpens = 0;
     UINT GetCodePage() { return codePage; }
     CStringW DecodeText(const CString&);
+    BOOL CopyColorText(const CString&);
     void OnAnsiEditor() { ++editorOpens; }
     void LockWindowUpdate() {}
     void UnlockWindowUpdate() {}
@@ -163,6 +177,21 @@ int main()
     g_ucs2conv.m_Big52Ucs2_Tab = table.data();
     const CString japanese = "\xc7\xd2\xc7\xe7\xc7\x7c\xc7\xa7MAD\xad\xb5\x92\x62\xb2\xbd";
     const CStringW expectedJapanese = L"ブルアカMAD音楽祭";
+    std::ifstream reverseFile("Lite/Release/PCMan/U2B", std::ios::binary);
+    std::vector<unsigned char> reverse((std::istreambuf_iterator<char>(reverseFile)), std::istreambuf_iterator<char>());
+    Check(!reverse.empty(), "shipped reverse UAO table");
+    g_ucs2conv.m_Ucs22Big5_Tab = reverse.data();
+    g_ucs2conv.m_Ucs2TabSize = static_cast<int>(reverse.size());
+    for (UINT cp : {950u, static_cast<UINT>(CP_UTF8)})
+    {
+        const CString body = cp == 950 ? japanese : CString(Encode(expectedJapanese.GetString(), cp).c_str());
+        const CString stored = CString("^[[31m") + body + "^[[m";
+        const CStringW label = FrequentText::Display(stored, true, cp, g_ucs2conv);
+        Check(label == CStringW(L"^[[31m") + expectedJapanese + L"^[[m", "FUS display preserves Japanese and visible ESC");
+        CString encoded;
+        Check(FrequentText::Encode(label, cp, g_ucs2conv, encoded) && encoded == stored,
+            "edited Unicode returns to exact station bytes for storage/send");
+    }
     for (UINT cp : { 950u, static_cast<UINT>(CP_UTF8) })
     {
         for (bool ansi : { false, true })
@@ -174,9 +203,18 @@ int main()
             c.downloaded_article = ansi ? CString("\x1b[31m") + body + "\x1b[m\r\n" : body + "\r\n";
             c.get_article_with_ansi = ansi;
             c.is_getting_article = true;
+            const CString original = c.downloaded_article;
             c.ProductionCopyArticleComplete();
             const CStringW expected = ansi ? CStringW(L"\x1b[31m") + expectedJapanese + L"\x1b[m\r\n" : expectedJapanese + L"\r\n";
             Check(CClipboard::text == expected, "article Unicode output preserves Japanese and ANSI escapes");
+            if (ansi)
+            {
+                Check(CClipboard::stationBytes == original && CClipboard::stationCP == cp,
+                    "colored article preserves exact editor input alongside Unicode");
+                c.testView.CopyColorText(original);
+                Check(CClipboard::text == expected && CClipboard::stationBytes == original,
+                    "selection clipboard exports the same two representations");
+            }
             Check(c.downloaded_article.IsEmpty() && !c.is_getting_article && !c.get_article_with_ansi,
                 "completion clears download state");
         }
@@ -195,6 +233,13 @@ int main()
         Check(CClipboard::text == L"keep clipboard", "cancel does not overwrite clipboard");
     }
     InterfaceRegression();
+    {
+        CTelnetConn c;
+        const CString split = "\xc7\x1b[32m\xd2";
+        c.testView.CopyColorText(split);
+        Check(CClipboard::text == L"\x1b[66;32m\u30d6" && CClipboard::stationBytes == split,
+            "split-color Big5 stays intact for legacy editor and readable in Unicode");
+    }
     const std::string valid = Footer(50, 1, 3);
     for (const char* bad : { "", "    ", "100%", "(101%) 1~3 \xa6\xe6", "(-1%) 1~3 \xa6\xe6",
         "(50%) 0~3 \xa6\xe6", "(50%) 4~3 \xa6\xe6", "(50%) 1~ \xa6\xe6",
