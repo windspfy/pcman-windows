@@ -67,6 +67,10 @@ public:
     CPoint cursor_pos = CPoint(0, 0), old_cursor_pos = CPoint(0, 0);
     BYTE cur_attr = 7, attr_flags = 0, saved_attr = 7;
     Sgr66::PendingAttribute sgr66_attribute;
+    BYTE pending_big5 = 0, pending_big5_attr = 7;
+    OscHyperlinks::Target pending_big5_link;
+    void FinishBig5Text();
+    void WriteReceivedGlyph(BYTE, BYTE, const OscHyperlinks::Target&, bool);
     int remote_line_wrap = -1;
     SynchronizedOutput sync_output;
     OscHyperlinks osc_links, osc_snapshot;
@@ -246,6 +250,48 @@ static void CheckWrapModes()
         t.Feed(bytes.substr(split < bytes.size() ? split : bytes.size()));
         Check(t.Row(0) == std::string("123456\xa4\xa4", 8) && t.Row(1) == "X       ", "complete Big5 pair at right edge survives packet splits");
     }
+}
+
+static void CheckBig5Receive()
+{
+    const std::string pair = "\xa4\xa4";
+    const std::string input = "\x1b[?7h1234567\x1b]8;;https://example.com\a\x1b[31m\xa4"
+        "\x1b[6n\x1b]8;;\a\x1b[32m\xa4X";
+    for (size_t cut = 0; cut <= input.size(); ++cut)
+    {
+        CTelnetConn t;
+        t.Feed(input.substr(0, cut));
+        t.Feed(input.substr(cut));
+        const auto row = t.screen[t.first_line + 1];
+        Check(t.Row(0) == "1234567 " && t.Row(1) == pair + "X     " &&
+            t.cursor_pos == CPoint(3, t.first_line + 1), "wrap complete Big5 pair at every packet split");
+        Check(t.GetLineAttr(row)[0] == 1 && t.GetLineAttr(row)[1] == 2 &&
+            t.osc_links.At(row, 0) && !t.osc_links.At(row, 1) && !t.sends,
+            "SGR and OSC between halves retain original attributes and link ownership");
+    }
+    for (const std::string mode : {std::string(), std::string("\x1b[?7l")})
+    {
+        CTelnetConn t;
+        t.Feed(mode + "1234567" + pair);
+        Check(t.Row(0) == "1234567 " && t.cursor_pos.x == 7, "non-fitting pair leaves final column intact");
+        t.Feed("!");
+        Check(t.Row(0) == "1234567!", "ASCII still fits after omitted pair");
+    }
+    CTelnetConn t;
+    t.Feed("A\xa4");
+    Check(t.Row(0) == "A       " && t.cursor_pos.x == 1, "packet end cannot publish a lead byte");
+    t.Feed("!"); // Not a Big5 trail.
+    Check(t.Row(0) == std::string("A\xa4!     "), "invalid trail preserves both original bytes");
+    t.Feed("\xa4\rZ");
+    Check(t.Row(0) == std::string("Z\xa4!\xa4    "), "finish old lead before cursor motion");
+    t.Feed("\xa4");
+    t.ClearAllFlags();
+    t.Feed("Q");
+    Check(!t.pending_big5 && t.Row(0)[1] == 'Q', "new session cannot reuse old lead");
+    CTelnetConn edge;
+    edge.Feed("123456" + pair + "\x1b[1;8H\x1b[?7h" + pair);
+    Check(edge.Row(0) == "123456  " && edge.Row(1) == pair + "      ",
+        "wrapping over an existing wide trailing cell clears both old halves");
 }
 
 static void FillRows(CTelnetConn& t)
@@ -447,6 +493,7 @@ int main()
     Check(t.scr_top == 1 && t.scr_bottom == 2, "DECSTBM sets margins");
     Check(t.cursor_pos == CPoint(0, t.first_line), "DECSTBM homes cursor without a server-supplied CUP");
     CheckWrapModes();
+    CheckBig5Receive();
     CheckOpaqueStrings();
     CheckScrolling();
     CheckResize();

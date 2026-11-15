@@ -9,6 +9,7 @@
 #include <vector>
 #include <algorithm>
 #include "../Lite/Sgr66.h"
+#include "../Lite/Ucs2Conv.h"
 #include "../Lite/TerminalCellModel.h"
 #include "../Lite/SynchronizedOutput.h"
 #include "../Lite/KeepAlive.h"
@@ -53,6 +54,10 @@ class CTelnetConn
 public:
     BYTE cur_attr = 7, attr_flags = 0;
     Sgr66::PendingAttribute sgr66_attribute;
+    BYTE pending_big5 = 0, pending_big5_attr = 7;
+    OscHyperlinks::Target pending_big5_link;
+    void FinishBig5Text();
+    void WriteReceivedGlyph(BYTE, BYTE, const OscHyperlinks::Target&, bool);
     int remote_line_wrap = -1;
     struct Settings { int cols_per_page = 8; long line_count = 2; bool line_wrap = false; CString esc_convert = "\x15"; } site_settings;
     char text[9] = {};

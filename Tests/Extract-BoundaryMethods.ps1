@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $parts = @()
 $selections = @{
     'Lite/TelnetConn.cpp' = @(
-        'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
+        'void CTelnetConn::WriteReceivedGlyph(', 'void CTelnetConn::FinishBig5Text(', 'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
         'inline void CTelnetConn::SetCurrentAttributes(', 'void CTelnetConn::GotoXY(',
         'void CTelnetConn::SetScrollRange(', 'void CTelnetConn::LineFeed()', 'void CTelnetConn::GoRight(',
         'void CTelnetConn::ClearCurrentLine(', 'char* CTelnetConn::ResizeLine(', 'void CTelnetConn::ReSizeBuffer(',

@@ -393,9 +393,77 @@ void CDownloadArticleDlg::PostNcDestroy()
 	}
 }
 
+void CTelnetConn::WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks::Target& link, bool pair)
+{
+	if (cursor_pos.y > last_line || cursor_pos.y < first_line) return;
+	const int cols = site_settings.cols_per_page;
+	const int width = pair ? 2 : 1;
+	auto margin = TerminalCells::RightMargin::Clip;
+	if (!is_ansi_editor)
+	{
+		if (remote_line_wrap == 0) margin = TerminalCells::RightMargin::Overwrite;
+		else if (remote_line_wrap > 0 || site_settings.line_wrap) margin = TerminalCells::RightMargin::Wrap;
+	}
+	const auto placement = TerminalCells::PlaceGlyph(cols, cursor_pos.x, width, margin);
+	if (placement.column < 0) return;
+	if (placement.clearEdge)
+	{
+		char* edge = screen[cursor_pos.y];
+		int column = 0;
+		while (column < cols - 1)
+		{
+			const BYTE next = static_cast<BYTE>(edge[column + 1]);
+			const bool wide = CUcs2Conv::IsBig5Pair(static_cast<BYTE>(edge[column]), next);
+			if (wide && column + 1 == cols - 1) break;
+			column += wide ? 2 : 1;
+		}
+		memset(edge + column, ' ', cols - column);
+		memset(GetLineAttr(edge) + column, attr, cols - column);
+		osc_links.Erase(edge, column, cols - column);
+		SetUpdateWholeLine(cursor_pos.y);
+	}
+	if (placement.lineFeed) LineFeed();
+	LPSTR curstr = screen[cursor_pos.y];
+	LPBYTE pcuratb = GetLineAttr(curstr);
+	const int column = placement.column;
+	if (is_ansi_editor && insert_mode)
+	{
+		osc_links.Copy(curstr, column + 1, curstr, column,
+			site_settings.cols_per_page - column - 1, site_settings.cols_per_page);
+		for (int i = site_settings.cols_per_page - 1; i > column; i--)
+		{
+			curstr[i] = curstr[i-1];
+			pcuratb[i] = pcuratb[i-1];
+		}
+		SetUpdateWholeLine(cursor_pos.y);
+	}
+	for (int i = 0; i < width; ++i)
+	{
+		const bool lead = pair && i == 0;
+		const BYTE byte = lead ? pending_big5 : value;
+		const BYTE color = lead ? pending_big5_attr : attr;
+		const int x = column + i;
+		const bool changedLink = osc_links.Write(curstr, x, cols, lead ? pending_big5_link : link);
+		if (static_cast<BYTE>(curstr[x]) != byte || pcuratb[x] != color || changedLink)
+			SetUpdateLine(cursor_pos.y, static_cast<BYTE>(x));
+		pcuratb[x] = color;
+		curstr[x] = byte;
+	}
+	cursor_pos.x = placement.nextColumn;
+}
+
+void CTelnetConn::FinishBig5Text()
+{
+	if (!pending_big5) return;
+	WriteReceivedGlyph(pending_big5, pending_big5_attr, pending_big5_link, false);
+	pending_big5 = 0;
+	pending_big5_link.reset();
+}
+
 void CTelnetConn::OnText()
 {
 	CheckSynchronizedOutputTimeout();
+	if (pending_big5 && view->GetCodePage() != 950) FinishBig5Text();
 	while (buf < last_byte)
 	{
 		if (*buf == IAC)
@@ -414,6 +482,7 @@ void CTelnetConn::OnText()
 			EndSynchronizedOutput();
 		else if (parsed == AnsiSequenceParser::AutoWrapOn || parsed == AnsiSequenceParser::AutoWrapOff)
 		{
+			FinishBig5Text();
 			sgr66_attribute.Reset();
 			if (!is_ansi_editor)
 			{
@@ -424,8 +493,10 @@ void CTelnetConn::OnText()
 		}
 		else if (parsed == AnsiSequenceParser::Dispatch)
 		{
-			if (ansi_parser.Sequence()[ansi_parser.Length() - 1] != 'm')
+			const char command = ansi_parser.Sequence()[ansi_parser.Length() - 1];
+			if (command != 'm' && command != 'n')
 			{
+				FinishBig5Text();
 				sgr66_attribute.Reset();
 				// The one-past-right position denotes a delayed wrap. Cursor/control
 				// operations address the last cell instead; SGR keeps wrap pending.
@@ -442,7 +513,7 @@ void CTelnetConn::OnText()
 		}
 		else if (parsed == AnsiSequenceParser::Text)
 		{
-			if (*buf < ' ') sgr66_attribute.Reset();
+			if (*buf < ' ') { FinishBig5Text(); sgr66_attribute.Reset(); }
 			switch (*buf)
 			{
 			case 13:	//Carrige Return
@@ -512,40 +583,22 @@ void CTelnetConn::OnText()
 					break;
 
 				if (*buf < ' ') break;
-				auto margin = TerminalCells::RightMargin::Clip;
-				if (!is_ansi_editor)
+				const BYTE byte = *buf;
+				if (CUcs2Conv::IsBig5Pair(pending_big5, byte))
 				{
-					if (remote_line_wrap == 0) margin = TerminalCells::RightMargin::Overwrite;
-					else if (remote_line_wrap > 0 || site_settings.line_wrap) margin = TerminalCells::RightMargin::Wrap;
+					WriteReceivedGlyph(byte, text_attr, osc_links.ActiveTarget(), true);
+					pending_big5 = 0;
+					pending_big5_link.reset();
+					break;
 				}
-				// The legacy row still has one slot per byte. Decoded writes will
-				// pass the glyph width here when the row can render it by cells.
-				const auto placement = TerminalCells::PlaceGlyph(site_settings.cols_per_page, cursor_pos.x, 1, margin);
-				if (placement.column < 0) break;
-				cursor_pos.x = placement.column;
-				if (placement.lineFeed) LineFeed();
-				LPSTR curstr = screen[cursor_pos.y];
-				LPBYTE pcuratb = GetLineAttr(curstr);
-				if (is_ansi_editor && insert_mode)
+				FinishBig5Text();
+				if (!is_ansi_editor && view->GetCodePage() == 950 && Sgr66::Lead(byte))
 				{
-					osc_links.Copy(curstr, cursor_pos.x + 1, curstr, cursor_pos.x,
-						site_settings.cols_per_page - cursor_pos.x - 1, site_settings.cols_per_page);
-					for (int i = site_settings.cols_per_page - 1; i > cursor_pos.x; i--)
-					{
-						curstr[i] = curstr[i-1];
-						pcuratb[i] = pcuratb[i-1];
-					}
-					SetUpdateWholeLine(cursor_pos.y);
+					pending_big5 = byte;
+					pending_big5_attr = text_attr;
+					pending_big5_link = osc_links.ActiveTarget();
 				}
-				else if (curstr[cursor_pos.x] != *buf || pcuratb[cursor_pos.x] != text_attr ||
-					osc_links.At(curstr, cursor_pos.x))
-					SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);
-
-				if (osc_links.Write(curstr, cursor_pos.x, site_settings.cols_per_page))
-					SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);
-				pcuratb[cursor_pos.x] = text_attr;
-				curstr[cursor_pos.x] = *buf;
-				cursor_pos.x = placement.nextColumn;
+				else WriteReceivedGlyph(byte, text_attr, osc_links.ActiveTarget(), false);
 			}
 			}
 		}
@@ -640,6 +693,7 @@ void CTelnetConn::CheckSynchronizedOutputTimeout()
 
 void CTelnetConn::OnClose()
 {
+	FinishBig5Text();
 	ansi_parser.Reset();
 	*ansi_param = 0;
 	pansi_param = ansi_param;
@@ -1709,6 +1763,7 @@ void CTelnetConn::ReSizeBuffer(long new_line_count, int new_cols_per_page, int n
 			if (view->GetCodePage() == CP_UTF8) return row.ReadUtf8(new_cols_per_page);
 			return row.ReadLegacy(new_cols_per_page, TerminalCells::WindowsRowDecoder(view->GetCodePage(), g_ucs2conv));
 		})) return; // projection refused: preserve source, screen, cursor and active snapshot
+	FinishBig5Text();
 	// Saved row layout is invalid after a terminal-size change. Keep copying
 	// blocked until a real sync end, even though presentation must resume.
 	if (sync_output.Active()) sync_output.Abort();

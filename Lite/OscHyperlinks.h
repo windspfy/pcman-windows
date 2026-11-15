@@ -77,16 +77,21 @@ public:
 
     bool Write(const void* row, int column, int width)
     {
+        return Write(row, column, width, active);
+    }
+    const Target& ActiveTarget() const { return active; }
+    bool Write(const void* row, int column, int width, const Target& target)
+    {
         if (column < 0 || column >= width) return false;
         const Target before = At(row, column);
-        if (active || before)
+        if (target || before)
         {
             auto& cells = rows[row];
             cells.resize(width);
-            cells[column] = active;
+            cells[column] = target;
             Prune(row);
         }
-        return before != active;
+        return before != target;
     }
 
     Target At(const void* row, int column) const

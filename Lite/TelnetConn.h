@@ -117,6 +117,10 @@ private:
 	TerminalCells::EncodedRowStorage encoded_rows{MAX_LINE_COUNT, MAX_LINE_COUNT * 160u};
 public:
 	Sgr66::PendingAttribute sgr66_attribute;
+	BYTE pending_big5 = 0, pending_big5_attr = 7;
+	OscHyperlinks::Target pending_big5_link;
+	void FinishBig5Text();
+	void WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks::Target& link, bool pair);
 	int remote_line_wrap = -1; // -1: local preference; 0/1: per-session DECAWM.
 	int sync_scroll_pos = 0;
 	void BeginSynchronizedOutput();
@@ -241,6 +245,8 @@ public:
 		osc_links.Reset();
 		osc_snapshot.Reset();
 		sgr66_attribute.Reset();
+		pending_big5 = 0;
+		pending_big5_link.reset();
 		remote_line_wrap = -1;
 		ansi_parser = AnsiSequenceParser();
 		is_telnet = true;

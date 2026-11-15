@@ -102,7 +102,7 @@ public:
 	LRESULT _OnImeCompositionA(WPARAM wparam, LPARAM lparam);
 	LRESULT OnInputLangChange(WPARAM wparam, LPARAM lparam);
 	inline UINT GetCodePage(){ return cp_id; }
-	void SetCodePage(UINT nCodePageId){ cp_id = nCodePageId; }
+	void SetCodePage(UINT nCodePageId);
 	inline BOOL IsWinNT(){ return os_ver_nt; }
 	DWORD ime_prop;
 
