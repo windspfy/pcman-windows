@@ -11,6 +11,7 @@
 #include "../Lite/Sgr66.h"
 #include "../Lite/SynchronizedOutput.h"
 #include "../Lite/OscHyperlinks.h"
+#include "../Lite/EncodedRowStorage.h"
 #include "../Lite/ArticleProgress.h"
 
 static unsigned int checks = 0;
@@ -67,6 +68,7 @@ public:
     int remote_line_wrap = -1;
     SynchronizedOutput sync_output;
     OscHyperlinks osc_links, osc_snapshot;
+    TerminalCells::EncodedRowStorage encoded_rows{MAX_LINE_COUNT, MAX_LINE_COUNT * 160u};
     AnsiSequenceParser ansi_parser;
     BYTE* buf = nullptr;
     BYTE* last_byte = nullptr;
@@ -370,6 +372,26 @@ static void CheckIntegration()
 
 int main()
 {
+    {
+        CTelnetConn t;
+        auto& store = t.encoded_rows;
+        Check(!store.StoredRows(), "real buffer allocates virtual blank source rows");
+        Check(store.TrySet(t.screen[0], TerminalCells::EncodedRow("old")) &&
+            store.TrySet(t.screen[1], TerminalCells::EncodedRow("keep")), "seed real row identities");
+        char* kept = t.screen[1];
+        t.cursor_pos.y = t.last_line;
+        t.LineFeed();
+        Check(t.screen[0] == kept && store.At(t.screen[0]).Bytes().size() == 4 &&
+            store.StoredRows() == 1 && store.SourceBytes() == 4, "scroll rotates source and erases recycled identity");
+        t.ReSizeBuffer(6, 10, 4);
+        Check(store.StoredRows() == 1 && store.At(t.screen[0]).Bytes().size() == 4,
+            "width change transfers source identity");
+        Check(store.TrySet(t.screen[5], TerminalCells::EncodedRow("tail")), "seed removed row");
+        t.ReSizeBuffer(4, 10, 4);
+        Check(store.StoredRows() == 1 && store.SourceBytes() == 4, "shrink releases removed row source");
+        t.InitNewLine(t.screen[0]);
+        Check(!store.StoredRows() && !store.SourceBytes(), "explicit clear releases source");
+    }
     CTelnetConn t;
     t.Feed("\x1b[3;5H\x1b[2;3r");
     Check(t.scr_top == 1 && t.scr_bottom == 2, "DECSTBM sets margins");

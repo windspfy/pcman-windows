@@ -421,6 +421,10 @@
     <ClInclude Include="Sgr66.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="EncodedRowStorage.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="EncodedTerminalRow.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="TerminalCellModel.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="PttWidthProfile.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="KeepAlive.h">
       <Filter>Header Files</Filter>
     </ClInclude>

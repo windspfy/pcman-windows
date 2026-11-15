@@ -1708,6 +1708,7 @@ char* CTelnetConn::ResizeLine(int line, int newl)
 	}
 	osc_links.Copy(newstr, 0, str, 0, (std::min)(static_cast<int>(site_settings.cols_per_page), newl), newl);
 	osc_links.Clear(str);
+	encoded_rows.Move(newstr, str);
 	delete []str;
 	*(DWORD*)(newatb + newl) = d;
 	return newstr;
@@ -1753,10 +1754,11 @@ void CTelnetConn::ReSizeBuffer(long new_line_count, int new_cols_per_page, int n
 			for (int i = 0;i < new_line_count;i++)
 				new_screen[i] = ResizeLine(i, new_cols_per_page);
 
-			for (;last_line >= new_line_count; last_line--)
+			for (long removed = site_settings.line_count - 1; removed >= new_line_count; --removed)
 			{
-				osc_links.Clear(screen[last_line]);
-				delete []screen[last_line];
+				encoded_rows.Erase(screen[removed]);
+				osc_links.Clear(screen[removed]);
+				delete []screen[removed];
 			}
 
 			delete []screen;
@@ -1937,6 +1939,7 @@ inline void CTelnetConn::EditorLineBack(LPSTR newline, LPBYTE newlineatb, int l)
 
 	memset(newline, ' ', site_settings.cols_per_page);
 	osc_links.Clear(newline);
+	encoded_rows.Erase(newline);
 	*(DWORD*)(newline + site_settings.cols_per_page) = 0;
 	memset(newlineatb, 7, site_settings.cols_per_page);
 	*(DWORD*)(newlineatb + site_settings.cols_per_page) = 0;

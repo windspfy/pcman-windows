@@ -23,6 +23,7 @@
 #include "ArticleProgress.h"
 #include "SynchronizedOutput.h"
 #include "OscHyperlinks.h"
+#include "EncodedRowStorage.h"
 #include "Sgr66.h"
 
 /////////////////////////////////////////////////////////////////////////////
@@ -109,6 +110,12 @@ public:
 	AnsiSequenceParser ansi_parser; // Separate from the Telnet IAC buffer.
 	SynchronizedOutput sync_output;
 	OscHyperlinks osc_links, osc_snapshot;
+private:
+	// Row identity follows the allocation, not its index in the screen array.
+	// Empty rows allocate no source payload. The limit counts original bytes,
+	// not process RAM. No receive-side writer until failure handling is wired.
+	TerminalCells::EncodedRowStorage encoded_rows{MAX_LINE_COUNT, MAX_LINE_COUNT * 160u};
+public:
 	Sgr66::PendingAttribute sgr66_attribute;
 	int remote_line_wrap = -1; // -1: local preference; 0/1: per-session DECAWM.
 	int sync_scroll_pos = 0;
@@ -304,6 +311,7 @@ inline LPBYTE CTelnetConn::GetLineAttr(const int line, const int len)
 
 inline void CTelnetConn::InitNewLine(char *line)
 {
+	encoded_rows.Erase(line);
 	osc_links.Clear(line);
 	LPBYTE attr = GetLineAttr(line);
 	memset(line, ' ', site_settings.cols_per_page);
