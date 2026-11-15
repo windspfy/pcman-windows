@@ -12,6 +12,8 @@
 #include "../Lite/SynchronizedOutput.h"
 #include "../Lite/OscHyperlinks.h"
 #include "../Lite/EncodedRowStorage.h"
+#include "../Lite/WindowsTerminalRowDecoder.h"
+static CUcs2Conv g_ucs2conv;
 #include "../Lite/ArticleProgress.h"
 
 static unsigned int checks = 0;
@@ -114,7 +116,7 @@ public:
     void SetUpdateWholeLine(long) {}
     void EditorCarriageRetiurn() { ++cursor_pos.y; }
     void Back() { if (cursor_pos.x > 0) --cursor_pos.x; }
-    void ClearCurrentLine(int) {}
+    void ClearCurrentLine(int);
     void ClearScreen(int) {}
     void InsertLines(int) {}
     void GoUp(int n) { cursor_pos.y = (std::max)(first_line, cursor_pos.y - n); }
@@ -372,6 +374,54 @@ static void CheckIntegration()
 
 int main()
 {
+    using TerminalCells::EncodedRow;
+    for (const UINT cp : {950u, static_cast<UINT>(CP_UTF8)})
+    {
+        CTelnetConn t; t.ui.codePage = cp;
+        const std::string wide = cp == 950 ? "\xa4\xa4" : "\xe4\xb8\xad";
+        const EncodedRow initial("A" + wide + "B");
+        auto& store = t.encoded_rows;
+        char* row = t.screen[t.first_line];
+        auto raw = [](const EncodedRow& r) {
+            std::string s; for (const auto& b : r.Bytes()) s += static_cast<char>(b.value); return s;
+        };
+        // The tests inject source because the network writer remains disabled.
+        Check(store.TrySet(row, initial), "seed source for EL and crop");
+        t.Feed("\x1b[1;3H\x1b[K");
+        Check(raw(store.At(row)) == "A       ", "EL through right half repairs whole glyph");
+        Check(store.TrySet(row, initial), "reseed for left-half erase");
+        std::memcpy(row, "12345678", 8);
+        t.Feed("\x1b[1;2H\x1b[1K");
+        Check(t.Row(0) == "  345678" && t.cursor_pos.x == 1, "EL 1 includes cursor and preserves suffix");
+        Check(raw(store.At(row)) == "   B", "EL prefix repairs trailing half and keeps suffix");
+        t.Feed("\x1b[2K");
+        Check(t.Row(0) == "        ", "EL 2 clears whole byte buffer");
+        Check(!store.StoredRows(), "EL 2 returns row to virtual blank");
+        Check(store.TrySet(row, initial), "reseed for width change");
+        t.ReSizeBuffer(6, 2, 4);
+        Check(raw(store.At(t.screen[t.first_line])) == "A", "physical crop never retains half a glyph");
+        t.ReSizeBuffer(6, 8, 4);
+        Check(raw(store.At(t.screen[t.first_line])) == "A", "growing cannot resurrect discarded suffix");
+    }
+    {
+        TerminalCells::EncodedRowStorage store(2, 8);
+        int a, b;
+        Check(store.TrySet(&a, EncodedRow("A\xe4\xb8\xad" "B")) && store.TrySet(&b, EncodedRow("123")), "seed limited store");
+        Check(!store.TryEdit(&b, [](const EncodedRow& old) {
+            return old.ReplaceUtf8(8, 4, 5, EncodedRow("X"));
+        }) && store.SourceBytes() == 8 && store.At(&b).ReadUtf8(3).Text(0, 3) == U"123",
+            "overwrite quota failure preserves bytes and accounting");
+        int visited = 0;
+        Check(!store.TryCropAll([&](const EncodedRow& r) {
+            if (++visited == 2) throw std::bad_alloc();
+            return r.ReadUtf8(1);
+        }) && visited == 2 && store.SourceBytes() == 8 && store.StoredRows() == 2 &&
+            store.At(&a).ReadUtf8(4).Text(0, 4) == U"A中B" && store.At(&b).ReadUtf8(3).Text(0, 3) == U"123",
+            "second-row failure leaves first crop uncommitted");
+        Check(store.TryEdit(&a, [](const EncodedRow& old) {
+            return old.ReplaceUtf8(8, 2, 3, EncodedRow("X"));
+        }) && store.At(&a).ReadUtf8(4).Text(0, 4) == U"A XB", "overwrite only one half repairs the other");
+    }
     {
         CTelnetConn t;
         auto& store = t.encoded_rows;

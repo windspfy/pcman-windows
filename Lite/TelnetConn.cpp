@@ -12,6 +12,8 @@
 #include "StrUtils.h"
 #include "WinUtils.h"
 #include "Clipboard.h"
+#include "WindowsTerminalRowDecoder.h"
+extern CUcs2Conv g_ucs2conv;
 #include "Websocket.h"
 
 #include <mmsystem.h>
@@ -708,31 +710,25 @@ void CTelnetConn::UpdateLine(int line)
 
 void CTelnetConn::ClearCurrentLine(int param)
 {
-	if (cursor_pos.x > site_settings.cols_per_page)
-		cursor_pos.x = site_settings.cols_per_page;
-	if (cursor_pos.x < 0)
-		cursor_pos.x = 0;
-
-	CRect rc;
-	switch (param)
+	const int cols = site_settings.cols_per_page;
+	const int x = static_cast<int>((std::clamp)(cursor_pos.x, 0L, static_cast<long>(cols)));
+	char* row = screen[cursor_pos.y];
+	if (param < 0 || param > 2) return;
+	const int begin = param == 0 ? x : 0;
+	const int end = param == 1 ? (std::min)(cols, x + 1) : cols;
+	if (begin == 0 && end == cols) encoded_rows.Erase(row);
+	else if (!encoded_rows.At(row).Bytes().empty())
 	{
-	default:
-	case 0:
-		osc_links.Erase(screen[cursor_pos.y], cursor_pos.x, site_settings.cols_per_page - cursor_pos.x);
-		memset((screen[cursor_pos.y] + cursor_pos.x), ' ', site_settings.cols_per_page - cursor_pos.x);
-		memset((GetLineAttr(cursor_pos.y) + cursor_pos.x), 7, site_settings.cols_per_page - cursor_pos.x);
-		break;
-	case 1:
-		osc_links.Erase(screen[cursor_pos.y], 0, cursor_pos.x);
-		memset(screen[cursor_pos.y], ' ', cursor_pos.x);
-		memset(GetLineAttr(cursor_pos.y), 7, cursor_pos.x);
-		break;
-	case 2:
-		osc_links.Clear(screen[cursor_pos.y]);
-		memset(screen[cursor_pos.y], ' ', site_settings.cols_per_page);
-		screen[cursor_pos.y][site_settings.cols_per_page] = 0;
-		memset(GetLineAttr(cursor_pos.y), 7, site_settings.cols_per_page);
+		if (begin != end && !encoded_rows.TryEdit(row, [&](const TerminalCells::EncodedRow& old) {
+			if (view->GetCodePage() == CP_UTF8) return old.ReplaceUtf8(cols, begin, end, {});
+			return old.ReplaceLegacy(cols, begin, end, {}, TerminalCells::WindowsRowDecoder(view->GetCodePage(), g_ucs2conv));
+		})) return;
 	}
+	cursor_pos.x = x;
+	osc_links.Erase(row, begin, end - begin);
+	memset(row + begin, ' ', end - begin);
+	memset(GetLineAttr(cursor_pos.y) + begin, 7, end - begin);
+	if (param == 2) row[cols] = 0;
 	SetUpdateWholeLine(cursor_pos.y);
 }
 
@@ -1481,6 +1477,8 @@ inline void CTelnetConn::ProcessAnsiEscapeSequence()
 			return;
 		if (type == 'r' && std::count(param, pansi_param, ';') > 1)
 			return; // DECSTBM accepts at most two parameters.
+		if (type == 'K' && std::find(param, pansi_param, ';') != pansi_param)
+			return; // EL has a single mode.
 
 		*pansi_param = ';';
 
@@ -1516,7 +1514,7 @@ inline void CTelnetConn::ProcessAnsiEscapeSequence()
 			switch (type)
 			{
 			case 'K':
-				ClearCurrentLine(atoi(param));
+				ClearCurrentLine(p1);
 				break;
 //------------ 2 parameters ---------------
 			case 'H':
@@ -1717,6 +1715,11 @@ char* CTelnetConn::ResizeLine(int line, int newl)
 
 void CTelnetConn::ReSizeBuffer(long new_line_count, int new_cols_per_page, int new_lines_per_page)
 {
+	if (new_cols_per_page < site_settings.cols_per_page && encoded_rows.StoredRows() &&
+		!encoded_rows.TryCropAll([&](const TerminalCells::EncodedRow& row) {
+			if (view->GetCodePage() == CP_UTF8) return row.ReadUtf8(new_cols_per_page);
+			return row.ReadLegacy(new_cols_per_page, TerminalCells::WindowsRowDecoder(view->GetCodePage(), g_ucs2conv));
+		})) return; // projection refused: preserve source, screen, cursor and active snapshot
 	// Saved row layout is invalid after a terminal-size change. Keep copying
 	// blocked until a real sync end, even though presentation must resume.
 	if (sync_output.Active()) sync_output.Abort();

@@ -227,13 +227,18 @@ namespace TerminalCells
                 throw std::invalid_argument("expected one complete fitting source glyph");
             return Replace(old, column, column + glyph.extent_, glyph, continuedRun);
         }
-        static EncodedRow Crop(const Projection& view)
+        friend class EncodedRowStorage;
+        static std::size_t CropLength(const Projection& view)
         {
             std::size_t end = 0;
             for (const auto& glyph : view.glyphs_)
                 if (glyph.column + glyph.width <= view.Columns()) end = glyph.source.end;
                 else break;
-            return EncodedRow(std::vector<Byte>(view.source_.begin(), view.source_.begin() + end));
+            return end;
+        }
+        static EncodedRow Crop(const Projection& view)
+        {
+            return EncodedRow(std::vector<Byte>(view.source_.begin(), view.source_.begin() + CropLength(view)));
         }
         static EncodedRow Slice(const Projection& view, int begin, int end)
         {

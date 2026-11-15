@@ -60,6 +60,38 @@ namespace TerminalCells
             CheckIdentity(destination);
             return TrySet(destination, At(source));
         }
+        // Transform a detached candidate. Only publish it (and update accounting)
+        // after the row and connection payload limits have both been checked.
+        template<class Edit> bool TryEdit(const void* row, Edit edit)
+        {
+            try { return TrySet(row, edit(At(row))); }
+            catch (const std::length_error&) { return false; }
+            catch (const std::bad_alloc&) { return false; }
+        }
+        // Physical width reduction is a multi-row operation. Stage only
+        // identities and byte counts; no row changes until all projections fit.
+        template<class Project> bool TryCropAll(Project project)
+        {
+            using It = decltype(rows_)::iterator;
+            std::vector<std::pair<It, std::size_t>> cuts;
+            try
+            {
+                for (auto it = rows_.begin(); it != rows_.end(); ++it)
+                {
+                    const auto length = EncodedRow::CropLength(project(it->second));
+                    if (length < it->second.Bytes().size()) cuts.emplace_back(it, length);
+                }
+            }
+            catch (const std::length_error&) { return false; }
+            catch (const std::bad_alloc&) { return false; }
+            for (auto [it, length] : cuts)
+            {
+                sourceBytes_ -= it->second.Bytes().size() - length;
+                if (length) it->second.bytes_.resize(length); // shrink only
+                else rows_.erase(it);
+            }
+            return true;
+        }
         void Move(const void* destination, const void* source)
         {
             CheckIdentity(destination); CheckIdentity(source);

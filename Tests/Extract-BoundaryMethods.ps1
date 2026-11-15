@@ -6,7 +6,7 @@ $selections = @{
         'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
         'inline void CTelnetConn::SetCurrentAttributes(', 'void CTelnetConn::GotoXY(',
         'void CTelnetConn::SetScrollRange(', 'void CTelnetConn::LineFeed()', 'void CTelnetConn::GoRight(',
-        'char* CTelnetConn::ResizeLine(', 'void CTelnetConn::ReSizeBuffer(',
+        'void CTelnetConn::ClearCurrentLine(', 'char* CTelnetConn::ResizeLine(', 'void CTelnetConn::ReSizeBuffer(',
         'void CTelnetConn::CreateBuffer(', 'ArticleProgress::Progress CTelnetConn::GetArticleProgress(')
     'Lite/TelnetConn.h' = @(
         'inline LPBYTE CTelnetConn::GetLineAttr(const char *line)',
