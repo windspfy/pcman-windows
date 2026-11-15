@@ -1,4 +1,5 @@
 #include "../Lite/EncodedTextDecoder.h"
+#include "../Lite/EncodedRowStorage.h"
 #include "../Lite/AnsiSequenceParser.h"
 #include "../Lite/Sgr66.h"
 #include <cstdio>
@@ -163,6 +164,53 @@ static void ReceiveSourceWrites()
     rejected = false;
     try { row.WriteUtf8Glyph(8, 2, EncodedRow(u8"\u0301")); } catch (const std::invalid_argument&) { rejected = true; }
     Check(rejected, "zero-width stream output uses attachment not a non-advancing replacement");
+}
+static void ReceiveCommitCases()
+{
+    for (bool legacy : {false, true})
+    {
+        EncodedTextDecoder decoder;
+        if (legacy) decoder.UseLegacy(Legacy{});
+        EncodedRowStorage rows(2, 2);
+        int target, occupied;
+        Check(rows.TrySet(&occupied, EncodedRow("X")), "reserve one source byte");
+        int calls = 0;
+        const auto commit = [&](const EncodedTextDecoder::Batch& batch) {
+            ++calls;
+            Check(batch.count == 2, "recovery delivers pending byte and current byte together");
+            return rows.TryEdit(&target, [&](EncodedRow row) {
+                int column = 0;
+                for (const auto& glyph : batch)
+                {
+                    row = legacy ? row.WriteLegacyGlyph(8, column, glyph.source, Legacy{}, column != 0)
+                                 : row.WriteUtf8Glyph(8, column, glyph.source, column != 0);
+                    column += glyph.width;
+                }
+                return row;
+            });
+        };
+        const unsigned char prefix = legacy ? 0xa4 : 0xe4;
+        Check(decoder.TryFeed(prefix, {9,11}, commit) && calls == 0, "split prefix needs no row");
+        Check(!decoder.TryFeed('!', {12,22}, commit) && decoder.Pending() &&
+            rows.SourceBytes() == 1 && rows.At(&target).Bytes().empty(), "quota refuses both glyphs together");
+        rows.Erase(&occupied);
+        Check(decoder.TryFeed('!', {12,22}, commit) && calls == 2 && !decoder.Pending(), "retry same input once");
+        const auto& bytes = rows.At(&target).Bytes();
+        Check(bytes.size() == 2 && bytes[0].value == prefix && bytes[0].style.link == 11 &&
+            bytes[0].boundaryBefore && bytes[1].value == '!' && bytes[1].style.link == 22,
+            "retry preserves original bytes, source boundary and styles");
+
+        decoder.Feed(prefix);
+        Check(!decoder.TryFinishText([](const auto&) { return false; }) && decoder.Pending(),
+            "refused control boundary preserves prefix");
+        try { decoder.TryFinishText([](const auto&) -> bool { throw std::bad_alloc(); }); }
+        catch (const std::bad_alloc&) { }
+        const auto completed = decoder.Feed(legacy ? 0xa4 : 0xb8);
+        const auto utf8Tail = legacy ? EncodedTextDecoder::Batch{} : decoder.Feed(0xad);
+        const auto& result = legacy ? completed : utf8Tail;
+        Check(result.count == 1 && result.glyphs[0].scalar == U'中' &&
+            !result.glyphs[0].source.Bytes()[0].boundaryBefore, "failed flush introduces no text boundary");
+    }
 }
 static void EncodingChangesAndFailures()
 {
@@ -358,6 +406,6 @@ static void FramingCases()
 }
 int main()
 {
-    Utf8Cases(); LegacyCases(); ReceiveSourceWrites(); EncodingChangesAndFailures(); FramingCases(); BytePairCoverage();
+    Utf8Cases(); LegacyCases(); ReceiveSourceWrites(); ReceiveCommitCases(); EncodingChangesAndFailures(); FramingCases(); BytePairCoverage();
     std::printf("PASS: %u encoded text decoder checks\n", checks);
 }

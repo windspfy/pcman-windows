@@ -57,23 +57,33 @@ namespace TerminalCells
         // Only primitive decoding state needs rollback; configured adapters are
         // immutable during Feed/Finish. Output allocation/adapter failure must
         // not discard a pending source prefix.
-        template<class Operation> Batch Transaction(Operation operation)
+        template<class Operation> bool Transaction(Operation operation)
         {
             const auto decoder = utf8_;
             const auto pending = pending_;
             const auto count = count_;
             const auto boundary = boundaryNext_;
-            try { return operation(); }
+            const auto restore = [&] {
+                utf8_ = decoder; pending_ = pending; count_ = count; boundaryNext_ = boundary;
+            };
+            try
+            {
+                if (operation()) return true;
+                restore();
+                return false;
+            }
             catch (...)
             {
-                utf8_ = decoder; pending_ = pending; count_ = count; boundaryNext_ = boundary;
+                restore();
                 throw;
             }
         }
     public:
         unsigned int CodePage() const { return codePage_; }
         bool Pending() const { return count_ != 0; }
-        Batch Feed(unsigned char byte, Style style = {})
+        // Commit receives the entire nonempty batch once. It must publish all
+        // its changes together or leave its destination untouched on failure.
+        template<class Commit> bool TryFeed(unsigned char byte, Style style, Commit&& commit)
         {
             return Transaction([&] {
                 Batch batch;
@@ -92,10 +102,10 @@ namespace TerminalCells
                     if (count_ == 2) EmitLegacy(batch);
                     if (count_ == 1 && !lead_(pending_[0].value)) EmitLegacy(batch);
                 }
-                return batch;
+                return !batch.count || commit(std::move(batch));
             });
         }
-        Batch FinishText()
+        template<class Commit> bool TryFinishText(Commit&& commit)
         {
             return Transaction([&] {
                 Batch batch;
@@ -106,8 +116,20 @@ namespace TerminalCells
                 else if (count_) EmitLegacy(batch);
                 if (count_) throw std::logic_error("unfinished legacy text prefix");
                 boundaryNext_ = true;
-                return batch;
+                return !batch.count || commit(std::move(batch));
             });
+        }
+        Batch Feed(unsigned char byte, Style style = {})
+        {
+            Batch result;
+            TryFeed(byte, style, [&](Batch&& batch) { result = std::move(batch); return true; });
+            return result;
+        }
+        Batch FinishText()
+        {
+            Batch result;
+            TryFinishText([&](Batch&& batch) { result = std::move(batch); return true; });
+            return result;
         }
         Batch UseUtf8()
         {
