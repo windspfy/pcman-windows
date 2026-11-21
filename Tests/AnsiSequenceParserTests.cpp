@@ -21,6 +21,7 @@ struct Capture
 	std::string text;
 	std::vector<std::string> commands;
 	std::vector<AnsiSequenceParser::Result> syncEvents;
+	unsigned int oscEvents = 0;
 	void Feed(const std::string& bytes)
 	{
 		for (unsigned char byte : bytes)
@@ -37,6 +38,8 @@ struct Capture
 			else if (result == AnsiSequenceParser::SyncBegin || result == AnsiSequenceParser::SyncEnd ||
 				result == AnsiSequenceParser::AutoWrapOn || result == AnsiSequenceParser::AutoWrapOff)
 				syncEvents.push_back(result);
+			else if (result == AnsiSequenceParser::Osc)
+				++oscEvents;
 		}
 	}
 };
@@ -60,6 +63,70 @@ static void Expect(const std::string& input, const std::string& text,
 		capture.Feed(std::string(1, byte));
 	Check(capture.text == text, label);
 	Check(capture.commands == commands && capture.syncEvents == syncEvents, label);
+}
+
+static void OpaqueStrings()
+{
+	const std::string st = "\x1b\\";
+	for (char kind : std::string("PX^_"))
+	{
+		const std::string start = std::string("\x1b") + kind;
+		// Every split includes the introducer and ESC/ST split; bytewise input
+		// also exercises persistent parser state without packet-end flushing.
+		Expect("BEFORE" + start + "payload" + st + "AFTER\x1b[6n", "BEFOREAFTER",
+			{ "[6n" }, "opaque string discarded, following CPR still dispatched");
+		const std::string nested = "\x1b[6n\x1b[31m\x1b[2J\x1b[?7h\x1b[?2026h\x1b[?2026l";
+		Expect(start + nested + st + "OK\x1b[32m!", "OK!", { "[32m" },
+			"opaque string cannot dispatch CPR, SGR, erase, wrap or sync");
+		Expect(start + "\a\r\n\t\b" + nested + st + "OK", "OK", {},
+			"BEL and C0 do not end non-OSC strings or execute");
+		Expect(start + "\x9c\x90\x98\x9e\x9f" + nested + st + "OK", "OK", {},
+			"8-bit C1 bytes inside opaque string are only payload");
+		Expect(start + "\x1b\x1b\\OK", "OK", {}, "repeated ESC before opaque ST");
+		Expect(start + "\x1b[6n\r\n\aUNFINISHED", "", {}, "unfinished opaque string stays hidden");
+		Expect(start + std::string("\0\x7f", 2) + nested + st + "OK", "OK", {},
+			"NUL and DEL in opaque string stay hidden");
+		for (char cancel : { '\x18', '\x1a' })
+			for (const std::string pendingEsc : { std::string(), std::string("\x1b") })
+				Expect(start + "payload" + pendingEsc + cancel + "OK\x1b[6n", "OK", { "[6n" },
+					"CAN/SUB cancels opaque string, including pending ESC");
+		std::string bytes;
+		for (unsigned int byte = 0; byte <= 255; ++byte)
+			if (byte != 0x18 && byte != 0x1a)
+				bytes += static_cast<char>(byte);
+		Expect(start + bytes + st + "OK", "OK", {}, "all payload bytes remain opaque");
+		const std::string nestedOsc = "\x1b]8;;https://example.com\a\x1b]8;;\a";
+		Capture capture;
+		capture.Feed(start + nestedOsc + nested + st + "OK");
+		Check(capture.text == "OK" && capture.commands.empty() && capture.syncEvents.empty() &&
+			capture.oscEvents == 0, "opaque payload cannot produce an OSC command");
+		// Oversized input is not exposed as OSC nor released as text after a cap.
+		Capture large;
+		large.Feed(start);
+		for (unsigned int chunk = 0; chunk < 256; ++chunk)
+			large.Feed(std::string(4096, 'x') + nested + nestedOsc);
+		Check(large.text.empty() && large.commands.empty() && large.syncEvents.empty() && large.oscEvents == 0,
+			"over 1 MiB opaque string remains discarded without a payload buffer");
+		large.Feed(st + "OK\x1b[6n");
+		Check(large.text == "OK" && large.commands == std::vector<std::string>{ "[6n" },
+			"oversized opaque string terminates and recovers");
+		for (const std::string suffix : { std::string(), std::string("\x1b") })
+		{
+			Capture reset, other;
+			reset.Feed(start + "partial" + suffix);
+			other.Feed("OTHER\x1b[6n");
+			Check(reset.text.empty() && other.text == "OTHER" && other.commands.size() == 1,
+				"opaque parsing state isolated per connection");
+			reset.parser.Reset();
+			reset.Feed("NEW\x1b[6n");
+			Check(reset.text == "NEW" && reset.commands == std::vector<std::string>{ "[6n" },
+				"reset discards unfinished opaque string and pending ESC");
+		}
+	}
+	const std::string c1 = "\x90\x98\x9e\x9f\x9c";
+	Expect(c1 + "OK\x1b[6n", c1 + "OK", { "[6n" }, "8-bit introducers remain encoded text outside strings");
+	Expect("\x1b POK\x1b X!\x1b ^YES\x1b _END", "OK!YESEND", {},
+		"ESC with intermediate is not a control-string introducer");
 }
 
 static void OscStrings()
@@ -120,6 +187,7 @@ static void OscStrings()
 
 int main()
 {
+	OpaqueStrings();
 	OscStrings();
 	Expect("plain\r\ntext", "plain\r\ntext", {}, "plain text");
 	Expect("\x1b[0;1;37;44mTITLE\x1b[0;30;47mRIGHT\x1b[m", "TITLERIGHT",

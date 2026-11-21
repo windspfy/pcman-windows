@@ -139,6 +139,21 @@ CAddress AnsiAddressFromPath(const CString& path)
 CPtrArray CTermView::all_telnet_conns;
 const int CTermView::kCaretHeight = 2;
 
+void CTermView::SetCodePage(UINT nCodePageId)
+{
+	if (cp_id == nCodePageId) return;
+	if (cp_id == 950)
+	{
+		for (int i = 0; i < parent->tab.GetItemCount(); ++i)
+		{
+			CConn* conn = parent->tab.GetCon(i);
+			if (conn && !conn->is_web)
+				static_cast<CTelnetConn*>(conn)->FinishBig5Text();
+		}
+	}
+	cp_id = nCodePageId;
+}
+
 CTermView::CTermView()
 {
 	CConn::view = this;

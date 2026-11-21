@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $source = [Text.UTF8Encoding]::new($false, $true).GetString(
     [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../Lite/TelnetConn.cpp')))
 $parts = @()
-foreach ($signature in @('void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
+foreach ($signature in @('void CTelnetConn::WriteReceivedGlyph(', 'void CTelnetConn::FinishBig5Text(', 'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
     'bool CTelnetConn::UseSgr66(', 'inline void CTelnetConn::SetCurrentAttributes(',
     'CString CTelnetConn::GetLineWithAnsi(', 'CString AttrToStr(')) {
     $start = $source.IndexOf($signature, [StringComparison]::Ordinal)

@@ -11,6 +11,9 @@
 #include "../Lite/Sgr66.h"
 #include "../Lite/SynchronizedOutput.h"
 #include "../Lite/OscHyperlinks.h"
+#include "../Lite/EncodedRowStorage.h"
+#include "../Lite/WindowsTerminalRowDecoder.h"
+static CUcs2Conv g_ucs2conv;
 #include "../Lite/ArticleProgress.h"
 
 static unsigned int checks = 0;
@@ -64,9 +67,14 @@ public:
     CPoint cursor_pos = CPoint(0, 0), old_cursor_pos = CPoint(0, 0);
     BYTE cur_attr = 7, attr_flags = 0, saved_attr = 7;
     Sgr66::PendingAttribute sgr66_attribute;
+    BYTE pending_big5 = 0, pending_big5_attr = 7;
+    OscHyperlinks::Target pending_big5_link;
+    void FinishBig5Text();
+    void WriteReceivedGlyph(BYTE, BYTE, const OscHyperlinks::Target&, bool);
     int remote_line_wrap = -1;
     SynchronizedOutput sync_output;
     OscHyperlinks osc_links, osc_snapshot;
+    TerminalCells::EncodedRowStorage encoded_rows{MAX_LINE_COUNT, MAX_LINE_COUNT * 160u};
     AnsiSequenceParser ansi_parser;
     BYTE* buf = nullptr;
     BYTE* last_byte = nullptr;
@@ -74,6 +82,7 @@ public:
     char* pansi_param = ansi_param;
     bool insert_mode = false, is_getting_article = false, is_ansi_editor = false, is_telnet = true;
     unsigned int sends = 0;
+    unsigned int dsrRequests = 0;
     int Send(const void*, int) { ++sends; return 0; }
     CTelnetConn() { ui.telnet = this; CreateBuffer(); }
     ~CTelnetConn() { for (int i = 0; i < site_settings.line_count; ++i) delete[] screen[i]; delete[] screen; }
@@ -111,7 +120,7 @@ public:
     void SetUpdateWholeLine(long) {}
     void EditorCarriageRetiurn() { ++cursor_pos.y; }
     void Back() { if (cursor_pos.x > 0) --cursor_pos.x; }
-    void ClearCurrentLine(int) {}
+    void ClearCurrentLine(int);
     void ClearScreen(int) {}
     void InsertLines(int) {}
     void GoUp(int n) { cursor_pos.y = (std::max)(first_line, cursor_pos.y - n); }
@@ -126,7 +135,7 @@ public:
     void BackTab(int) {}
     void SetMode(int) {}
     void ResetMode(int) {}
-    void DeviceStatusReport(int) {}
+    void DeviceStatusReport(int) { ++dsrRequests; } // Observe dispatch; production remains a no-op.
     void ScrollUp() {}
     void ScrollDown() {}
     void Feed(std::string input)
@@ -136,6 +145,50 @@ public:
     std::string Row(int y) { return std::string(screen[first_line + y], site_settings.cols_per_page); }
 };
 #include "ProductionBoundaryMethods.inc"
+
+static void CheckOpaqueStrings()
+{
+    const std::string st = "\x1b\\";
+    for (char kind : std::string("PX^_"))
+    {
+        const std::string start = std::string("\x1b") + kind;
+        const std::string input = start + "\x1b[6n\x1b[31m\x1b[?7l\x1b[1;2r\x1b[?2026h"
+            "\x1b]8;;https://example.com\a\r\n\t\b\a" + st;
+        for (std::size_t split = 0; split <= input.size(); ++split)
+        {
+            CTelnetConn t;
+            t.Feed("\x1b[?7h12345678"); // Keep the existing delayed wrap untouched.
+            t.Feed(input.substr(0, split)); t.Feed(input.substr(split));
+            Check(t.Row(0) == "12345678" && t.Row(1) == "        " &&
+                t.cursor_pos == CPoint(8, t.first_line), "opaque input cannot change screen or pending wrap");
+            Check(t.dsrRequests == 0 && t.sends == 0 && t.cur_attr == 7 && t.remote_line_wrap == 1 &&
+                t.scr_top == 0 && t.scr_bottom == 3 && !t.sync_output.Active() && !t.ui.doflash,
+                "production OnText cannot execute opaque queries, modes, SGR or BEL");
+            t.Feed("X");
+            Check(t.Row(1) == "X       " && t.GetLineAttr(t.first_line + 1)[0] == 7 &&
+                !t.osc_links.At(t.screen[t.first_line + 1], 0), "text after ST keeps wrap, color and link scope");
+            t.Feed("\x1b[6n");
+            Check(t.dsrRequests == 1 && t.sends == 0, "outside DSR reaches no-op handler; response remains disabled");
+        }
+        {
+            CTelnetConn t;
+            t.Feed("\x1b[?2026h");
+            t.Feed(start + "\x1b[?2026l\x1b[6n" + st);
+            Check(t.sync_output.Active() && t.dsrRequests == 0, "opaque end-sync cannot publish live frame");
+            t.Feed("\x1b[?2026l");
+            Check(!t.sync_output.Active(), "real end-sync after opaque string still releases frame");
+        }
+        for (const std::string suffix : { std::string(), std::string("\x1b") })
+        {
+            CTelnetConn t;
+            t.Feed(start + "partial" + suffix);
+            t.ClearAllFlags(); // Extracted production lifecycle reset, not a duplicate implementation.
+            t.Feed("NEW\x1b[6n");
+            Check(t.Row(0) == "NEW     " && t.dsrRequests == 1,
+                "production reset removes unfinished opaque state across sessions");
+        }
+    }
+}
 
 static void CheckWrapModes()
 {
@@ -197,6 +250,48 @@ static void CheckWrapModes()
         t.Feed(bytes.substr(split < bytes.size() ? split : bytes.size()));
         Check(t.Row(0) == std::string("123456\xa4\xa4", 8) && t.Row(1) == "X       ", "complete Big5 pair at right edge survives packet splits");
     }
+}
+
+static void CheckBig5Receive()
+{
+    const std::string pair = "\xa4\xa4";
+    const std::string input = "\x1b[?7h1234567\x1b]8;;https://example.com\a\x1b[31m\xa4"
+        "\x1b[6n\x1b]8;;\a\x1b[32m\xa4X";
+    for (size_t cut = 0; cut <= input.size(); ++cut)
+    {
+        CTelnetConn t;
+        t.Feed(input.substr(0, cut));
+        t.Feed(input.substr(cut));
+        const auto row = t.screen[t.first_line + 1];
+        Check(t.Row(0) == "1234567 " && t.Row(1) == pair + "X     " &&
+            t.cursor_pos == CPoint(3, t.first_line + 1), "wrap complete Big5 pair at every packet split");
+        Check(t.GetLineAttr(row)[0] == 1 && t.GetLineAttr(row)[1] == 2 &&
+            t.osc_links.At(row, 0) && !t.osc_links.At(row, 1) && !t.sends,
+            "SGR and OSC between halves retain original attributes and link ownership");
+    }
+    for (const std::string mode : {std::string(), std::string("\x1b[?7l")})
+    {
+        CTelnetConn t;
+        t.Feed(mode + "1234567" + pair);
+        Check(t.Row(0) == "1234567 " && t.cursor_pos.x == 7, "non-fitting pair leaves final column intact");
+        t.Feed("!");
+        Check(t.Row(0) == "1234567!", "ASCII still fits after omitted pair");
+    }
+    CTelnetConn t;
+    t.Feed("A\xa4");
+    Check(t.Row(0) == "A       " && t.cursor_pos.x == 1, "packet end cannot publish a lead byte");
+    t.Feed("!"); // Not a Big5 trail.
+    Check(t.Row(0) == std::string("A\xa4!     "), "invalid trail preserves both original bytes");
+    t.Feed("\xa4\rZ");
+    Check(t.Row(0) == std::string("Z\xa4!\xa4    "), "finish old lead before cursor motion");
+    t.Feed("\xa4");
+    t.ClearAllFlags();
+    t.Feed("Q");
+    Check(!t.pending_big5 && t.Row(0)[1] == 'Q', "new session cannot reuse old lead");
+    CTelnetConn edge;
+    edge.Feed("123456" + pair + "\x1b[1;8H\x1b[?7h" + pair);
+    Check(edge.Row(0) == "123456  " && edge.Row(1) == pair + "      ",
+        "wrapping over an existing wide trailing cell clears both old halves");
 }
 
 static void FillRows(CTelnetConn& t)
@@ -325,11 +420,81 @@ static void CheckIntegration()
 
 int main()
 {
+    using TerminalCells::EncodedRow;
+    for (const UINT cp : {950u, static_cast<UINT>(CP_UTF8)})
+    {
+        CTelnetConn t; t.ui.codePage = cp;
+        const std::string wide = cp == 950 ? "\xa4\xa4" : "\xe4\xb8\xad";
+        const EncodedRow initial("A" + wide + "B");
+        auto& store = t.encoded_rows;
+        char* row = t.screen[t.first_line];
+        auto raw = [](const EncodedRow& r) {
+            std::string s; for (const auto& b : r.Bytes()) s += static_cast<char>(b.value); return s;
+        };
+        // The tests inject source because the network writer remains disabled.
+        Check(store.TrySet(row, initial), "seed source for EL and crop");
+        t.Feed("\x1b[1;3H\x1b[K");
+        Check(raw(store.At(row)) == "A       ", "EL through right half repairs whole glyph");
+        Check(store.TrySet(row, initial), "reseed for left-half erase");
+        std::memcpy(row, "12345678", 8);
+        t.Feed("\x1b[1;2H\x1b[1K");
+        Check(t.Row(0) == "  345678" && t.cursor_pos.x == 1, "EL 1 includes cursor and preserves suffix");
+        Check(raw(store.At(row)) == "   B", "EL prefix repairs trailing half and keeps suffix");
+        t.Feed("\x1b[2K");
+        Check(t.Row(0) == "        ", "EL 2 clears whole byte buffer");
+        Check(!store.StoredRows(), "EL 2 returns row to virtual blank");
+        Check(store.TrySet(row, initial), "reseed for width change");
+        t.ReSizeBuffer(6, 2, 4);
+        Check(raw(store.At(t.screen[t.first_line])) == "A", "physical crop never retains half a glyph");
+        t.ReSizeBuffer(6, 8, 4);
+        Check(raw(store.At(t.screen[t.first_line])) == "A", "growing cannot resurrect discarded suffix");
+    }
+    {
+        TerminalCells::EncodedRowStorage store(2, 8);
+        int a, b;
+        Check(store.TrySet(&a, EncodedRow("A\xe4\xb8\xad" "B")) && store.TrySet(&b, EncodedRow("123")), "seed limited store");
+        Check(!store.TryEdit(&b, [](const EncodedRow& old) {
+            return old.ReplaceUtf8(8, 4, 5, EncodedRow("X"));
+        }) && store.SourceBytes() == 8 && store.At(&b).ReadUtf8(3).Text(0, 3) == U"123",
+            "overwrite quota failure preserves bytes and accounting");
+        int visited = 0;
+        Check(!store.TryCropAll([&](const EncodedRow& r) {
+            if (++visited == 2) throw std::bad_alloc();
+            return r.ReadUtf8(1);
+        }) && visited == 2 && store.SourceBytes() == 8 && store.StoredRows() == 2 &&
+            store.At(&a).ReadUtf8(4).Text(0, 4) == U"A中B" && store.At(&b).ReadUtf8(3).Text(0, 3) == U"123",
+            "second-row failure leaves first crop uncommitted");
+        Check(store.TryEdit(&a, [](const EncodedRow& old) {
+            return old.ReplaceUtf8(8, 2, 3, EncodedRow("X"));
+        }) && store.At(&a).ReadUtf8(4).Text(0, 4) == U"A XB", "overwrite only one half repairs the other");
+    }
+    {
+        CTelnetConn t;
+        auto& store = t.encoded_rows;
+        Check(!store.StoredRows(), "real buffer allocates virtual blank source rows");
+        Check(store.TrySet(t.screen[0], TerminalCells::EncodedRow("old")) &&
+            store.TrySet(t.screen[1], TerminalCells::EncodedRow("keep")), "seed real row identities");
+        char* kept = t.screen[1];
+        t.cursor_pos.y = t.last_line;
+        t.LineFeed();
+        Check(t.screen[0] == kept && store.At(t.screen[0]).Bytes().size() == 4 &&
+            store.StoredRows() == 1 && store.SourceBytes() == 4, "scroll rotates source and erases recycled identity");
+        t.ReSizeBuffer(6, 10, 4);
+        Check(store.StoredRows() == 1 && store.At(t.screen[0]).Bytes().size() == 4,
+            "width change transfers source identity");
+        Check(store.TrySet(t.screen[5], TerminalCells::EncodedRow("tail")), "seed removed row");
+        t.ReSizeBuffer(4, 10, 4);
+        Check(store.StoredRows() == 1 && store.SourceBytes() == 4, "shrink releases removed row source");
+        t.InitNewLine(t.screen[0]);
+        Check(!store.StoredRows() && !store.SourceBytes(), "explicit clear releases source");
+    }
     CTelnetConn t;
     t.Feed("\x1b[3;5H\x1b[2;3r");
     Check(t.scr_top == 1 && t.scr_bottom == 2, "DECSTBM sets margins");
     Check(t.cursor_pos == CPoint(0, t.first_line), "DECSTBM homes cursor without a server-supplied CUP");
     CheckWrapModes();
+    CheckBig5Receive();
+    CheckOpaqueStrings();
     CheckScrolling();
     CheckResize();
     CheckIntegration();

@@ -33,6 +33,9 @@
     <Link><SubSystem>Console</SubSystem></Link>
     <PreBuildEvent><Command>powershell -NoProfile -ExecutionPolicy Bypass -File "$(ProjectDir)Extract-BoundaryMethods.ps1" -OutputPath "$(IntDir)ProductionBoundaryMethods.inc"</Command></PreBuildEvent>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="TerminalBoundaryTests.cpp" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="TerminalBoundaryTests.cpp" />
+    <ClCompile Include="..\Lite\Ucs2Conv.cpp"><TreatWarningAsError>false</TreatWarningAsError></ClCompile>
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
