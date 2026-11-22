@@ -134,7 +134,7 @@ PR #10（`238922f`）的功能提交 `3ee286b` 僅含三個正式程式檔；後
 - 更新 `Tests/AnsiSequenceParserTests.cpp`、`Tests/Sgr66Tests.cpp`；後者的替身需同步新增 `remote_line_wrap`，才能配合已合併的正式接收方法。
 - 新增 `Docs/Terminal-Boundary-Validation.md`，更新本清單、公告評估、新介面回歸及 `Tests/README.md`。
 
-使用者亦在該提交納入另存的 `Tests/Start-TerminalBoundaryFixture2.ps1`，保留不動；正式腳本自動回歸仍使用 `Start-TerminalBoundaryFixture.ps1`。
+另存的 `Start-TerminalBoundaryFixture2.ps1` 與正式腳本內容重複，已移除；第二個埠改用 `-Port 22308`。
 此次驗證不納入本機個人 `Config.ini`、`Toolbar.bmp`、站台設定或舊建置產物；保留原工作目錄中的個人修改，不代為提交／推送。
 主程式建置仍有警告，並非零警告驗收；依賴既有 Visual Studio／Windows SDK 與已安裝 vcpkg 套件，不宣稱全新 Windows 環境的安裝驗證。
 本輪未再操作 GUI 或登入站台，沿用 10/17 使用者人工驗收紀錄。六則公告的本輪已選定相容性工作已完成，不據此宣稱完整終端機相容。
@@ -153,7 +153,7 @@ PTT 的 `C4 A1`／CPR 探針會依欄位判斷 UTF-8；只新增回覆而沿用�
 使用者同意開始第一階段後，新增 `TerminalCellModel.h`／`PttWidthProfile.h` 與 `TerminalCellModelTests.cpp/.vcxproj`，尚未接入正式 BBS。
 新組態測試 Debug／Release 各通過 2,286,759 項，ASAN 同樣通過；既有七組測試亦在兩組態完整重建、執行通過。
 新增 Module 沒有 MFC、網路或剪貼簿副作用；正式 `DeviceStatusReport` 保持空函式。文字格模型的 Interface 集中解碼、寬字完整性與游標查詢，不新增 CPR 專用影子游標。
-固定政策及後續接入範圍見 [第一階段驗收](Terminal-Cell-Model-Validation.md)。第一階段已提交 `5879222`；當時未重新宣稱主程式編譯／GUI／站台驗收，個人設定保留。
+固定政策及後續接入範圍見 [終端文字模型](Terminal-Model.md)。第一階段已提交 `5879222`；當時未重新宣稱主程式編譯／GUI／站台驗收，個人設定保留。
 
 ### 第二階段 A：原始列與編碼重新解讀（2026-10-18）
 
@@ -162,7 +162,7 @@ PTT 的 `C4 A1`／CPR 探針會依欄位判斷 UTF-8；只新增回覆而沿用�
 重用正式 UAO converter／B2U，不反向轉碼重建來源，也不另建 CPR 游標。
 第八組 Debug／Release／ASAN 各 2,422,207 項，第九組實際 Windows／UAO 各 131,339 項通過。
 尚未修改正式接收、繪圖、選取、同步或編碼切換流程；測試／文件已提交 `a4ab8af`，但漏交兩個被引用的核心標頭，需隨本輪補交；**第二階段整體及 CPR 未完成**。
-下一步接入列保存生命週期、接收／顯示／匯出與全域切換；實作政策和驗證限制見 [原始列驗收](Encoded-Row-Validation.md)。
+下一步接入列保存生命週期、接收／顯示／匯出與全域切換；實作政策和驗證限制見 [終端文字模型](Terminal-Model.md#原始列encodedrow)。
 
 ### 第二階段 B：列更新與稀疏儲存（2026-10-18）
 
@@ -170,7 +170,7 @@ PTT 的 `C4 A1`／CPR 探針會依欄位判斷 UTF-8；只新增回覆而沿用�
 來源保留逐 byte style 與分界，不另持有游標；使用明確額度且失敗保留舊資料。
 第八／九組 Debug／Release／ASAN 各 2,551,208／131,344 項通過；主程式接點尚未掛接，不當作正式捲動／resize／同步已完成。
 後續已提交 `ba0cc1f`，前輪遺漏的 `EncodedTerminalRow.h`、`WindowsTerminalRowDecoder.h` 及新增 `EncodedRowStorage.h` 均已補齊。
-下一步為正式接收／畫面／各讀取與匯出端的一致接入、總額度及拒絕更新處理；沒有新 GUI 人工驗收項目，見 [生命週期驗證](Encoded-Row-Lifecycle-Validation.md)。
+下一步為正式接收／畫面／各讀取與匯出端的一致接入、總額度及拒絕更新處理；沒有新 GUI 人工驗收項目，見 [終端文字模型](Terminal-Model.md#稀疏列儲存encodedrowstorage)。
 
 ### 第二階段 C：接收串流解碼（2026-10-18）
 
@@ -178,7 +178,7 @@ PTT 的 `C4 A1`／CPR 探針會依欄位判斷 UTF-8；只新增回覆而沿用�
 第八／九／十組 Debug／Release／ASAN 各 2,551,215／131,351／325,461 項通過，包含真正 UAO／Shift-JIS 串流。
 使用者確認超過來源額度時中止連線、保留最後完整畫面並顯示原因，不觸發自動重連／自動關閉；正式失敗路徑尚未實作。
 後續已提交 `6458d7a`，新增 decoder、測試來源與 project 均已納入版控。
-**正式 `OnText`／繪圖與 CPR 仍未啟用，第二階段整體未完成**；詳見 [接收層驗證](Encoded-Text-Decoder-Validation.md)。
+**正式 `OnText`／繪圖與 CPR 仍未啟用，第二階段整體未完成**；詳見 [終端文字模型](Terminal-Model.md#接收串流解碼encodedtextdecoder)。
 
 ### CPR 解析安全前置：未支援控制字串（2026-10-18）
 

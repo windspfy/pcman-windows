@@ -46,7 +46,7 @@ static void CheckLabel(const Terminal& t)
         Check(t.links.At(t.row, x) && *t.links.At(t.row, x) == uri, "label hit returns hidden target");
 }
 
-int main()
+int RunOscHyperlinkTests()
 {
     const std::string data = "X" + open + "LABEL" + close + "Y";
     for (size_t split = 0; split <= data.size(); ++split)
@@ -163,4 +163,5 @@ int main()
         Check(*limited.At(keys, 0) == "https://after-reset.example", "reset releases retained URL byte quota");
     }
     std::printf("PASS: %u OSC hyperlink checks (real parser, URI policy and row metadata)\n", checks);
+    return 0;
 }

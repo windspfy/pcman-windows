@@ -60,7 +60,7 @@
 `d317d6e` 已補交 `TerminalBoundaryTests.cpp/.vcxproj`、`Extract-BoundaryMethods.ps1`、兩個正式 TerminalBoundary fixture 腳本，
 以及 `AnsiSequenceParserTests.cpp`、`Sgr66Tests.cpp` 的配套修改和相關文件。
 `Sgr66Tests.cpp` 的接收替身已同步新增 `remote_line_wrap`；只取得 PR #10 的三個正式檔案不等於已取得完整測試配套。
-使用者亦提交另存的 `Start-TerminalBoundaryFixture2.ps1`，本輪保留不動；正式腳本回歸仍以不帶 `2` 的版本為準。
+另存的 `Start-TerminalBoundaryFixture2.ps1` 與正式腳本內容重複，已移除；第二個埠改用 `-Port 22308`。
 
 2026-10-18：由 `git archive d317d6e` 匯出全新暫存來源目錄，不複製原工作目錄的個人修改、obj 或舊 EXE。
 使用 Visual Studio 18 Community 的 MSBuild、專案指定的 v143 工具鏈與既有 Windows SDK；主程式依賴既有 vcpkg 安裝，

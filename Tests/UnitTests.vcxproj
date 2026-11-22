@@ -16,7 +16,7 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
-    <OutDir>$(ProjectDir)bin\$(Configuration)\</OutDir><IntDir>$(ProjectDir)obj\CellModel\$(Configuration)\</IntDir>
+    <OutDir>$(ProjectDir)bin\$(Configuration)\</OutDir><IntDir>$(ProjectDir)obj\UnitTests\$(Configuration)\</IntDir>
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -29,7 +29,12 @@
     </ClCompile>
     <Link><SubSystem>Console</SubSystem></Link>
   </ItemDefinitionGroup>
-  <ItemGroup><ClCompile Include="TerminalCellModelTests.cpp" /></ItemGroup>
-  <ItemGroup><ClInclude Include="..\Lite\TerminalCellModel.h" /><ClInclude Include="..\Lite\PttWidthProfile.h" /><ClInclude Include="..\Lite\EncodedTerminalRow.h" /><ClInclude Include="..\Lite\EncodedRowStorage.h" /></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="UnitTests.cpp" />
+    <ClCompile Include="AnsiSequenceParserTests.cpp" />
+    <ClCompile Include="OscHyperlinkTests.cpp" />
+    <ClCompile Include="TerminalCellModelTests.cpp" />
+    <ClCompile Include="EncodedTextDecoderTests.cpp" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

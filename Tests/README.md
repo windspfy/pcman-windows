@@ -6,8 +6,7 @@
 
 | 測試專案（Tests 目錄） | 驗證範圍 |
 | --- | --- |
-| AnsiSequenceParserTests、OscHyperlinkTests | CSI／控制字串與分段解析；OSC 8 目標和列範圍 |
-| TerminalCellModelTests、EncodedTextDecoderTests | 字寬、原始列與儲存生命週期；串流解碼及跨封包邊界 |
+| UnitTests | 純標頭單元測試（單一 exe）：CSI／控制字串與分段解析；OSC 8 目標和列範圍；字寬、原始列與儲存生命週期；串流解碼及跨封包邊界 |
 | WindowsTerminalRowTests | 使用正式 Windows 碼頁與 UAO 表驗證列投影 |
 | TerminalBoundaryTests、SynchronizedOutputTests | 正式收字與游標、折行、編碼切換；同步快照與可讀時機 |
 | Sgr66Tests、ArticleProgressTests | ANSI 色彩與選單資源；文章進度、跨頁與文字匯出 |
@@ -21,7 +20,7 @@ MSBuild Tests/TerminalBoundaryTests.vcxproj /p:Configuration=Debug /p:Platform=W
 ./Tests/bin/Debug/TerminalBoundaryTests.exe
 ```
 
-`Sgr66Tests` 會讀取同組態 PCMan 的選單資源。`WindowsTerminalRowTests` 需要字碼表目錄參數，例如 `./Tests/bin/Debug/WindowsTerminalRowTests.exe Lite/Release/PCMan`。各模型的規格與歷史驗證見[格模型](../Docs/Terminal-Cell-Model-Validation.md)、[原始列](../Docs/Encoded-Row-Validation.md)、[列生命週期](../Docs/Encoded-Row-Lifecycle-Validation.md)及[串流解碼](../Docs/Encoded-Text-Decoder-Validation.md)。
+`Sgr66Tests` 會讀取同組態 PCMan 的選單資源。`WindowsTerminalRowTests` 需要字碼表目錄參數，例如 `./Tests/bin/Debug/WindowsTerminalRowTests.exe Lite/Release/PCMan`。各模型的規格見[終端文字模型](../Docs/Terminal-Model.md)。
 
 | PowerShell 入口 | 用途與執行時機 |
 | --- | --- |
@@ -38,11 +37,13 @@ PR #15 已啟用普通 CSI 6n 回覆，實站及本機測試範圍見[目前進�
 使用 Visual Studio Developer PowerShell，在專案根目錄執行：
 
 ```powershell
-MSBuild Tests/AnsiSequenceParserTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
-./Tests/bin/Debug/AnsiSequenceParserTests.exe
-MSBuild Tests/AnsiSequenceParserTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
-./Tests/bin/Release/AnsiSequenceParserTests.exe
+MSBuild Tests/UnitTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
+./Tests/bin/Debug/UnitTests.exe
+MSBuild Tests/UnitTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
+./Tests/bin/Release/UnitTests.exe
 ```
+
+`UnitTests` 由 `AnsiSequenceParserTests`、`OscHyperlinkTests`、`TerminalCellModelTests`、`EncodedTextDecoderTests` 四個來源檔組成，依序執行，任一失敗即回傳非零。
 
 測試直接包含正式程式使用的 `Lite/AnsiSequenceParser.h`，不是另外模擬一份解析器。
 檢查既有指令分派、所有私有前綴與 final byte 組合、中間字元、未知指令、
@@ -54,14 +55,7 @@ OSC 測試涵蓋 ST 所有切點、BEL、CAN／SUB、未知 OSC、內嵌 CSI／D
 未終止與 1 MiB 輸入，以及每連線隔離和 Reset。最多保留 4096-byte 命令；超長仍吸收到結尾，不建立截斷網址。
 2026-10-17 最終版：Debug／Release 各通過 OSC 目標 1,343、解析器 11,451、Keep-Alive 2,318、同步 100、文章 810 項。
 
-OSC 目標與畫面範圍的獨立測試：
-
-```powershell
-MSBuild Tests/OscHyperlinkTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
-./Tests/bin/Debug/OscHyperlinkTests.exe
-MSBuild Tests/OscHyperlinkTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
-./Tests/bin/Release/OscHyperlinkTests.exe
-```
+OSC 目標與畫面範圍（`OscHyperlinkTests.cpp`，同樣由 `UnitTests` 執行）：
 
 使用正式 `AnsiSequenceParser.h`／`OscHyperlinks.h`，不開啟瀏覽器；驗證 HTTP／HTTPS、非法協定、
 顯示網址與真正目標不同、相鄰／多位元組標籤、覆寫與搬移、快照、重設與 URL 額度。

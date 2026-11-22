@@ -735,7 +735,7 @@ static void CheckEncodedRowStorage()
         Check(varied.SourceBytes() == used && varied.StoredRows() == count, "mixed storage operations keep exact quota accounting");
     }
 }
-int main()
+int RunTerminalCellModelTests()
 {
     TerminalCells::Screen screen(8, 2);
     screen.WriteUtf8(u8"A中B");
@@ -755,4 +755,5 @@ int main()
     CheckEncodedRowEdits();
     CheckEncodedRowStorage();
     std::printf("PASS: %u terminal cell model checks\n", checks);
+    return 0;
 }
