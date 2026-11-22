@@ -134,7 +134,7 @@ PR #10（`238922f`）的功能提交 `3ee286b` 僅含三個正式程式檔；後
 - 更新 `Tests/AnsiSequenceParserTests.cpp`、`Tests/Sgr66Tests.cpp`；後者的替身需同步新增 `remote_line_wrap`，才能配合已合併的正式接收方法。
 - 新增 `Docs/Terminal-Boundary-Validation.md`，更新本清單、公告評估、新介面回歸及 `Tests/README.md`。
 
-使用者亦在該提交納入另存的 `Tests/Start-TerminalBoundaryFixture2.ps1`，保留不動；正式腳本自動回歸仍使用 `Start-TerminalBoundaryFixture.ps1`。
+另存的 `Start-TerminalBoundaryFixture2.ps1` 與正式腳本內容重複，已移除；第二個埠改用 `-Port 22308`。
 此次驗證不納入本機個人 `Config.ini`、`Toolbar.bmp`、站台設定或舊建置產物；保留原工作目錄中的個人修改，不代為提交／推送。
 主程式建置仍有警告，並非零警告驗收；依賴既有 Visual Studio／Windows SDK 與已安裝 vcpkg 套件，不宣稱全新 Windows 環境的安裝驗證。
 本輪未再操作 GUI 或登入站台，沿用 10/17 使用者人工驗收紀錄。六則公告的本輪已選定相容性工作已完成，不據此宣稱完整終端機相容。
