@@ -139,7 +139,6 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_COMMAND(ID_FONT_BTN, OnFont)
 	ON_COMMAND(ID_BBS_FONT, OnBBSFont)
 	ON_COMMAND(ID_PASTE, OnPaste)
-	ON_COMMAND(ID_PASTETINYURL, OnPasteTinyUrl)
 	ON_COMMAND(ID_SELECTALL, OnSelAll)
 	ON_COMMAND(ID_FILE_EXIT, OnExit)
 	ON_COMMAND(IDM_HELP, OnHelp)
@@ -159,7 +158,6 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_UPDATE_COMMAND_UI(ID_PLAY_ANSIMOVIE, OnUpdateIsBBSSite)
 	ON_UPDATE_COMMAND_UI(ID_PASTE, OnUpdatePaste)
 	ON_UPDATE_COMMAND_UI(ID_PASTEFILE, OnUpdatePaste)
-	ON_UPDATE_COMMAND_UI(ID_PASTETINYURL, OnUpdatePaste)
 	ON_UPDATE_COMMAND_UI(ID_ANSICOPY, OnUpdateIsSel)
 	ON_UPDATE_COMMAND_UI(ID_ADDTOHOME, OnUpdateIsConn)
 	ON_UPDATE_COMMAND_UI(IDC_ANSIBAR_SEND, OnUpdateIsConnnected)	//used by ansi bar
@@ -2305,47 +2303,6 @@ void CMainFrame::OnCopy()
 void CMainFrame::OnFont()
 {
 	OnBBSFont();
-}
-
-bool DownLoadURL(LPCTSTR url, LPCTSTR out_path, bool show_ui = false);
-
-void CMainFrame::OnPasteTinyUrl()
-{
-	CString url = TINY_URL;
-	CString text;
-	if (!CClipboard::GetText(text)) //第一次從剪貼簿取字串 (ansi字串)
-		return;
-	url += text;
-
-	if (!DownLoadURL(url, ::AppPath + TINYURL_TEMP_FILENAME))
-		return;
-
-	CFile f;
-	char* str = new char[8192];
-	char* found = NULL;
-	if (f.Open(::AppPath + TINYURL_TEMP_FILENAME, CFile::modeRead))
-	{
-		CArchive* ar;
-		ar = new CArchive(&f, CArchive::load);
-		ar->Read(str, 8192);
-		if (found = strstri(str, "Open in new window"))
-		{
-			char* s = str;
-			char* t = NULL;
-			if ((s = strstri(found - 150, "http")) && (t = strnstri(s, "</b>", 40)))
-			{
-				char* tinyurl = new char[t-s+1];
-				strncpy(tinyurl, s, t - s);
-				*(tinyurl + (t - s)) = '\0';
-				view.telnet->SendString(tinyurl);
-				delete []tinyurl;
-			}
-		}
-		ar->Close();
-		f.Close();
-		unlink(::AppPath + TINYURL_TEMP_FILENAME);
-	}
-	delete []str;
 }
 
 void CMainFrame::OnCopyPaste()

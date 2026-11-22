@@ -501,7 +501,6 @@
 #define IDS_SEARCH_BAR_TITLE            32922
 #define ID_SWITCH_BACK                  32923
 #define ID_SEARCHBAR_FOCUS              32924
-#define ID_PASTETINYURL                 32926
 #define ID_SEARCHBAR                    32927
 #define ID_COPYARTICLE                  32928
 #define ID_PLAY_ANSIMOVIE               32929

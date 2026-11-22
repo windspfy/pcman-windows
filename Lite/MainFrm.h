@@ -29,8 +29,6 @@
 
 const WPARAM AC_MULTIPCMAN	= 0;
 const WPARAM AC_PCMANLOCKED	= 1;
-const char TINY_URL[] = "http://tinyurl.com/create.php?url=";
-const char TINYURL_TEMP_FILENAME[] = "Tinyurl";
 
 CAddress ParseAddress(const CString& url);
 CString NameFromAddress(const CAddress& address);
@@ -239,7 +237,6 @@ public:
 	afx_msg void OnFont();
 	afx_msg void OnBBSFont();
 	afx_msg void OnPaste();
-	afx_msg void OnPasteTinyUrl();
 	afx_msg void OnSelAll();
 	afx_msg void OnExit();
 	afx_msg void OnHelp();

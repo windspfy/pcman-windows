@@ -112,7 +112,6 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "複製並貼上 (&S)",                 ID_COPYPASTE
         MENUITEM "從檔案貼上 (&I)",                 ID_PASTEFILE
-        MENUITEM "貼上短網址 (&T)",                 ID_PASTETINYURL
         MENUITEM "全選這個畫面 (&A)",               ID_SELECTALL
         MENUITEM "全選整個緩衝區 (&L)",             ID_SELALL_BUF
         MENUITEM SEPARATOR
