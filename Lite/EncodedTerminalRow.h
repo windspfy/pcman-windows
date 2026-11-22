@@ -284,7 +284,7 @@ namespace TerminalCells
         const std::vector<Byte>& Bytes() const { return bytes_; }
         // Legacy screen columns each store one byte. Preserve any source beyond
         // the visible mirror when another charset writes into a retained row.
-        EncodedRow WriteByteCells(int column, const Byte* cells, int count) const
+        EncodedRow WriteByteCells(int column, const Byte* cells, int count, bool startRun) const
         {
             if (!cells || column < 0 || column >= 160 || count < 1 || count > 160 - column)
                 throw std::out_of_range("invalid legacy byte range");
@@ -292,6 +292,10 @@ namespace TerminalCells
             if (next.size() < static_cast<std::size_t>(column + count))
                 next.resize(column + count);
             std::copy_n(cells, count, next.begin() + column);
+            next[column].boundaryBefore = startRun;
+            // Subsequent adjacent input replaces this seam. Untouched suffixes keep it.
+            if (static_cast<std::size_t>(column + count) < next.size())
+                next[column + count].boundaryBefore = true;
             return EncodedRow(std::move(next));
         }
         Projection ReadUtf8(int columns) const

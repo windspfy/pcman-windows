@@ -198,6 +198,10 @@ int main()
         c.ContinueCopyArticle();
         Check(c.completes == 2 && c.clipboard.Find(next.c_str()) >= 0,
             "next UTF-8 page preserves final wide character in the newly downloaded line");
+        c.is_ansi_editor = true;
+        const CString editorLine = c.GetArticleLine(0, color);
+        Check(editorLine.Find(body.c_str()) >= 0 && (editorLine.Find("\x1b[0;31;40m") >= 0) == color,
+            "UTF-8 editor source exports the full 120-byte row in plain and colored modes");
     }
     using namespace ArticleProgress;
     // Use the shipped B2U table, not a synthetic replacement mapping.

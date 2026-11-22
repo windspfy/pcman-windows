@@ -92,6 +92,7 @@ public:
     BYTE pending_big5 = 0, pending_big5_attr = 7;
     OscHyperlinks::Target pending_big5_link;
     void FinishBig5Text();
+    bool legacy_run_start = true;
     void WriteReceivedGlyph(BYTE, BYTE, const OscHyperlinks::Target&, bool);
     int remote_line_wrap = -1;
     SynchronizedOutput sync_output;
@@ -628,6 +629,35 @@ int main()
         legacy.Feed("\r\xc4\xa1\x1b[6n");
         Check(legacy.reply == "\x1b[1;3R", "PTT probe reports Big5 column three");
         CTelnetConn switched;
+        CTelnetConn prefix;
+        prefix.ui.codePage = CP_UTF8;
+        prefix.Feed("\xc4");
+        prefix.FinishReceivedText(); // SetCodePage flushes the previous encoding first.
+        prefix.ui.codePage = 950;
+        prefix.Feed("\x1b[1;2H\xa4\xc4");
+        prefix.Feed("\xa4\x40");
+        prefix.FinishReceivedText();
+        prefix.ui.codePage = CP_UTF8;
+        const auto prefixRow = prefix.ReadUtf8Source(prefix.screen[prefix.first_line]).ReadUtf8(8);
+        Check(prefixRow.At(0).text == U"\ufffd" &&
+            prefixRow.Text(0, 8).find(U"\u0124") != std::u32string::npos,
+            "charset switch separates a flushed UTF-8 prefix but permits re-decoding across consecutive Big5 pairs");
+
+        CTelnetConn middle;
+        middle.ui.codePage = CP_UTF8;
+        middle.Feed(u8"A中B");
+        middle.FinishReceivedText();
+        middle.ui.codePage = 950;
+        middle.Feed("\x1b[1;3H\x1b[31m\xa4\xa4\x1b[6n");
+        Check(middle.Row(0).substr(0,5) == std::string("A\xe4\xa4\xa4" "B") &&
+            middle.reply == "\x1b[1;5R", "legacy overwrite addresses the active Big5 columns");
+        middle.FinishReceivedText();
+        middle.ui.codePage = CP_UTF8;
+        const auto mixed = middle.ReadUtf8Source(middle.screen[middle.first_line]);
+        Check(mixed.Bytes().size() == 5 && mixed.Bytes()[1].style.attribute == 7 &&
+            mixed.Bytes()[2].style.attribute == 1 && mixed.Bytes()[3].style.attribute == 1 &&
+            mixed.Bytes()[4].style.attribute == 7 && mixed.ReadUtf8(8).At(1).text == U"\ufffd",
+            "overwriting inside old UTF-8 preserves adjacent bytes and colors without decoding across the edit");
         switched.ui.codePage = CP_UTF8;
         switched.Feed(u8"abc中中X");
         switched.FinishReceivedText();

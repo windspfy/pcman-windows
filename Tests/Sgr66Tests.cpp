@@ -70,6 +70,7 @@ public:
     BYTE pending_big5 = 0, pending_big5_attr = 7;
     OscHyperlinks::Target pending_big5_link;
     void FinishBig5Text();
+    bool legacy_run_start = true;
     void WriteReceivedGlyph(BYTE, BYTE, const OscHyperlinks::Target&, bool);
     TerminalCells::EncodedRowStorage encoded_rows{64,10000};
     int remote_line_wrap = -1;

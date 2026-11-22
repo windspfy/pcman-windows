@@ -435,7 +435,7 @@ void CTelnetConn::WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks:
 		{
 			const TerminalCells::EncodedRow::Byte blanks[2] = {{' ', {attr, 0}}, {' ', {attr, 0}}};
 			if (!encoded_rows.TryEdit(edge, [&](const TerminalCells::EncodedRow& source) {
-				return source.WriteByteCells(column, blanks, cols - column);
+				return source.WriteByteCells(column, blanks, cols - column, true);
 			})) return StopForSourceLimit();
 		}
 		memset(edge + column, ' ', cols - column);
@@ -454,7 +454,7 @@ void CTelnetConn::WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks:
 			{value, {attr, 0}}
 		};
 		if (!encoded_rows.TryEdit(curstr, [&](const TerminalCells::EncodedRow& source) {
-			return source.WriteByteCells(column, cells, width);
+			return source.WriteByteCells(column, cells, width, legacy_run_start || placement.lineFeed);
 		})) return StopForSourceLimit();
 	}
 	if (is_ansi_editor && insert_mode)
@@ -481,6 +481,7 @@ void CTelnetConn::WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks:
 		curstr[x] = byte;
 	}
 	cursor_pos.x = placement.nextColumn;
+	legacy_run_start = false;
 }
 
 void CTelnetConn::FinishBig5Text()
@@ -658,6 +659,7 @@ void CTelnetConn::FinishReceivedText()
 	for (const auto& glyph : utf8_decoder.FinishText())
 		WriteUtf8Glyph(glyph, utf8_prefix_link);
 	utf8_prefix_link.reset();
+	legacy_run_start = true;
 }
 
 void CTelnetConn::OnText(bool fromNetwork)
@@ -2586,7 +2588,7 @@ CString CTelnetConn::GetUtf8Range(long line, int begin, int finish, bool withCol
 
 CString CTelnetConn::GetArticleLine(long line, bool withColor)
 {
-	if (view->GetCodePage() == CP_UTF8 && !is_ansi_editor)
+	if (view->GetCodePage() == CP_UTF8)
 		return GetUtf8Range(line, 0, site_settings.cols_per_page, withColor);
 	return withColor ? GetLineWithAnsi(line) : CString(screen[line]);
 }
