@@ -142,13 +142,13 @@ const int CTermView::kCaretHeight = 2;
 void CTermView::SetCodePage(UINT nCodePageId)
 {
 	if (cp_id == nCodePageId) return;
-	if (cp_id == 950)
+	if (cp_id == 950 || cp_id == CP_UTF8)
 	{
 		for (int i = 0; i < parent->tab.GetItemCount(); ++i)
 		{
 			CConn* conn = parent->tab.GetCon(i);
 			if (conn && !conn->is_web)
-				static_cast<CTelnetConn*>(conn)->FinishBig5Text();
+				static_cast<CTelnetConn*>(conn)->FinishReceivedText();
 		}
 	}
 	cp_id = nCodePageId;
@@ -750,7 +750,7 @@ void CTermView::OnTimer(UINT nIDEvent)
 			else if (item->is_disconnected)
 			{
 				//如果設定自動重連，而且在時間內被斷線，且間隔時間已到
-				if (item->site_settings.auto_reconnect)
+				if (!item->source_limit_stopped && item->site_settings.auto_reconnect)
 				{
 					if (item->time <= item->site_settings.connect_interval)
 					{
@@ -804,10 +804,9 @@ void CTermView::OnLButtonUp(UINT nFlags, CPoint point_In)
 	else
 	{
 //	----------如果不是在選取文字，就處理超連結--------------
-		int l;	const char* url;
-		if ((url = HyperLinkHitTest(point, l)))	//如果滑鼠點選到超連結
+		const CString target = HyperLinkHitTest(point);
+		if (!target.IsEmpty())
 		{
-			const CString target(url, l);
 			//	呼叫程式開啟超連結
 			AppConfig.hyper_links.OpenURL(target);
 		}
@@ -951,8 +950,7 @@ void CTermView::OnMouseMove(UINT nFlags, CPoint point_In)
 	}
 	else
 	{
-		int len;
-		if (HyperLinkHitTest(point_In, len))
+		if (!HyperLinkHitTest(point_In).IsEmpty())
 		{
 			if (MouseCTL_GetCurrentMouseCursor() == NULL)
 				SetCursor(hand_cursor);
@@ -1011,9 +1009,7 @@ void CTermView::OnContextMenu(CWnd* pWnd, CPoint point)
 		}
 	}
 
-	const char* link = NULL;
 	CString contextUrl;
-	int len;
 	if (telnet)
 	{
 		int x, y;
@@ -1021,14 +1017,14 @@ void CTermView::OnContextMenu(CWnd* pWnd, CPoint point)
 		ScreenToClient(&pt);
 		PtToLineCol(pt, x, y, false);
 
-		if ((link = HyperLinkHitTest(pt, len)))	//如果偵測到是超連結
+		contextUrl = HyperLinkHitTest(pt);
+		if (!contextUrl.IsEmpty())
 		{
 			InsertMenu(parent->edit_menu, 0, MF_SEPARATOR | MF_BYPOSITION, 0, 0);
 			InsertMenu(parent->edit_menu, 0, MF_STRING | MF_BYPOSITION, ID_EDIT_COPYURL, LoadString(IDS_COPY_URL));
 		}
 	}
 
-	if (link) contextUrl.SetString(link, len); // Popup messages may update/free terminal rows.
 	int c = GetMenuItemCount(parent->edit_menu);
 	AppendMenu(parent->edit_menu, MF_SEPARATOR, 0, NULL);
 	HMENU config = GetSubMenu(parent->main_menu, 2);
@@ -1041,7 +1037,7 @@ void CTermView::OnContextMenu(CWnd* pWnd, CPoint point)
 
 	RemoveMenu(parent->edit_menu, c, MF_BYPOSITION);
 	RemoveMenu(parent->edit_menu, c, MF_BYPOSITION);
-	if (link)
+	if (!contextUrl.IsEmpty())
 	{
 		RemoveMenu(parent->edit_menu, 0, MF_BYPOSITION);
 		RemoveMenu(parent->edit_menu, 0, MF_BYPOSITION);
@@ -1434,7 +1430,7 @@ void CTermView::OnEditPastefile()
 
 void CTermView::ReConnect(CTelnetConn *retelnet)
 {
-	if (retelnet->is_disconnected)
+	if (retelnet->is_disconnected && !retelnet->source_limit_stopped)
 	{
 		int idx = parent->ConnToIndex(retelnet);
 		TCITEM item;
@@ -1555,10 +1551,34 @@ void CTermView::OnAnsiSaveAs()
 	}
 }
 
+CString CTermView::GetUtf8Selection(bool withColor)
+{
+	CString result;
+	CPoint start = telnet->sel_start, end = telnet->sel_end;
+	if (start == end) return result;
+	if (start.y > end.y || (start.y == end.y && start.x > end.x))
+		std::swap(start, end);
+	const int cols = telnet->site_settings.cols_per_page;
+	const int first = (std::max)(0L, start.y);
+	const int last = (std::min)(static_cast<long>(telnet->site_settings.line_count) - 1, end.y);
+	if (telnet->sel_block && !withColor) paste_block = TRUE;
+	for (int y = first; y <= last; ++y)
+	{
+		const int left = telnet->sel_block ? (std::min)(start.x, end.x) : y == start.y ? start.x : 0;
+		const int right = telnet->sel_block ? (std::max)(start.x, end.x) : y == end.y ? end.x : cols;
+		const int begin = (std::clamp)(left, 0, cols);
+		const int finish = (std::clamp)(right, begin, cols);
+		if (y != first) result += "\r\n";
+		result += telnet->GetUtf8Range(y, begin, finish, withColor);
+	}
+	return result;
+}
+
 CString CTermView::GetSelAnsi()
 {
 	CString data;
 	if (!telnet || telnet->sync_output.Active()) return data;
+	if (GetCodePage() == CP_UTF8) return GetUtf8Selection(true);
 	if (telnet->UseSgr66())
 	{
 		CPoint start = telnet->sel_start, end = telnet->sel_end;
@@ -2226,7 +2246,9 @@ inline void CTermView::DrawScreen(CDC &dc)
 		else
 			pline_selstart = pline_selend = NULL;
 
-		if (AppConfig.old_textout)
+		if (GetCodePage() == CP_UTF8)
+			DrawUtf8Line(dc, displayLine, pline_selstart, pline_selend, y);
+		else if (AppConfig.old_textout)
 			DrawLineOld(dc, displayLine, pline_selstart, pline_selend, y);
 		else
 			DrawLine(dc, displayLine, pline_selstart, pline_selend, y);
@@ -2258,6 +2280,55 @@ BOOL IsDBCS(char* head, char* str)
 	return (head >= str && w == 2);
 }
 
+
+void CTermView::DrawUtf8Line(CDC& dc, LPCSTR line, BYTE* selectionBegin, BYTE* selectionEnd, int y)
+{
+	const int columns = telnet->site_settings.cols_per_page;
+	BYTE* attrs = telnet->GetLineAttr(line);
+	const auto row = telnet->ReadUtf8Source(line).ReadUtf8(columns);
+	const auto selected = [&](int x) {
+		return selectionBegin && attrs + x >= selectionBegin && attrs + x < selectionEnd;
+	};
+	std::wstring text;
+	std::vector<int> advances;
+	text.reserve(columns);
+	advances.reserve(columns);
+	for (int x = 0; x < columns;)
+	{
+		const auto& cell = row.At(x);
+		const BYTE attr = cell.style.attribute;
+		const bool invert = selected(x);
+		int end = x;
+		text.clear();
+		advances.clear();
+		do {
+			const auto& glyph = row.At(end);
+			const size_t begin = text.size();
+			for (char32_t scalar : glyph.text)
+			{
+				if (scalar > 0xffff)
+				{
+					scalar -= 0x10000;
+					text.push_back(static_cast<wchar_t>(0xd800 + (scalar >> 10)));
+					scalar = 0xdc00 + (scalar & 0x3ff);
+				}
+				text.push_back(static_cast<wchar_t>(scalar));
+			}
+			advances.resize(text.size(), 0);
+			advances.back() = chw * glyph.width;
+			end += glyph.width;
+			if (!AppConfig.old_textout || text.size() - begin > 1) break;
+		} while (end < columns && row.At(end).style.attribute == attr && selected(end) == invert);
+
+		const UINT options = SetDCColors(&dc, attr, invert);
+		CRect rect(left_margin + x * chw, y, left_margin + end * chw, y + lineh);
+		if (!(options & ETO_OPAQUE)) FillBkRect(dc, rect, attr, invert);
+		const bool visible = !IsAttrBlink(attr) || blight || telnet->sel_end != telnet->sel_start;
+		::ExtTextOutW(dc.GetSafeHdc(), rect.left, y, options | ETO_CLIPPED, rect,
+			text.data(), visible ? static_cast<UINT>(text.size()) : 0, advances.data());
+		x = end;
+	}
+}
 
 void CTermView::DrawLine(CDC &dc, LPCSTR line, BYTE* pline_selstart, BYTE* pline_selend, int y)
 {
@@ -2368,7 +2439,7 @@ inline void CTermView::DrawLink(CDC &dc, LPSTR line, LPBYTE atbline, int y)
 {
 	const OscHyperlinks& explicitLinks = telnet->sync_output.Active() ? telnet->osc_snapshot : telnet->osc_links;
 	const int width = telnet->site_settings.cols_per_page;
-	if (!telnet->GetHyperLink(line) && !explicitLinks.Overlaps(line, 0, width))
+	if (GetCodePage() != CP_UTF8 && !telnet->GetHyperLink(line) && !explicitLinks.Overlaps(line, 0, width))
 		return;
 
 	int start, len;
@@ -2392,19 +2463,20 @@ inline void CTermView::DrawLink(CDC &dc, LPSTR line, LPBYTE atbline, int y)
 		}
 		column = end;
 	}
-	const char* plink = line;
-	const char* eol = line + telnet->site_settings.cols_per_page;
+	const std::string projected = GetCodePage() == CP_UTF8 ?
+		telnet->ReadUtf8Source(line).ReadUtf8(width).AsciiColumns() : std::string();
+	const char* scan = projected.empty() ? line : projected.c_str();
+	const char* plink = scan;
+	const char* eol = scan + width;
 	while ((plink < eol) && (plink = AppConfig.hyper_links.FindHyperLink(plink, len)))
 	{
-		if (explicitLinks.Overlaps(line, static_cast<int>(plink - line), len))
+		if (explicitLinks.Overlaps(line, static_cast<int>(plink - scan), len))
 		{
 			plink += len;
 			continue;
 		}
-		start = (int(plink) - int(line)) * chw + left_margin;
-		char tmp = plink[len];	((char*)plink)[len] = 0;
-		int t = AppConfig.hyper_links.GetURLType(plink);
-		((char*)plink)[len] = tmp;
+		start = static_cast<int>(plink - scan) * chw + left_margin;
+		int t = AppConfig.hyper_links.GetURLType(CString(plink, len));
 		if (t >= 0)
 		{
 			pen = CreatePen(PS_SOLID, 1, AppConfig.hyper_links.links[t].color);
@@ -2422,6 +2494,20 @@ inline void CTermView::DrawBlink()
 {
 	if (!telnet || telnet->sync_output.Active())
 		return;
+	if (GetCodePage() == CP_UTF8)
+	{
+		for (int i = 0; i < telnet->site_settings.lines_per_page; ++i)
+		{
+			const int cols = telnet->site_settings.cols_per_page;
+			if (telnet->HasUtf8Blink(telnet->screen[telnet->scroll_pos + i]))
+			{
+				CRect rect(left_margin, top_margin + i * lineh, left_margin + cols * chw,
+					top_margin + (i + 1) * lineh);
+				InvalidateRect(rect, FALSE);
+			}
+		}
+		return;
+	}
 	CClientDC dc(this);
 
 	GetClientRect(view_rect);
@@ -2770,38 +2856,39 @@ CRect CTermView::TextRect() const
 }
 
 
-const char* CTermView::HyperLinkHitTest(CPoint client_point, int& len)	//用來測試畫面上某點是否為超連結
+CString CTermView::HyperLinkHitTest(CPoint client_point)
 //x,y為終端機行列座標，而不是滑鼠座標
 {
-	if (!telnet || telnet->sync_output.Active()) return nullptr;
+	if (!telnet || telnet->sync_output.Active()) return {};
 	CRect text_rect = TextRect();
 	if (!PtInRect(&text_rect, client_point))
-		return nullptr;
+		return {};
 
 	int x, y;
 	PtToLineCol(client_point, x, y, false);
 	y += telnet->scroll_pos;
-	const char* plink = telnet->screen[y];
-	const auto target = telnet->osc_links.At(plink, x);
+	const char* line = telnet->screen[y];
+	const auto target = telnet->osc_links.At(line, x);
 	if (target)
 	{
-		len = static_cast<int>(target->size());
-		return target->empty() ? nullptr : target->c_str();
+		return CString(target->c_str());
 	}
 
-	if (!telnet->GetHyperLink(plink))
-		return nullptr;
+	if (GetCodePage() != CP_UTF8 && !telnet->GetHyperLink(line)) return {};
 
-	const char* eol = plink + telnet->site_settings.cols_per_page;
-	while (plink = AppConfig.hyper_links.FindHyperLink(plink, len))
+	const std::string projected = GetCodePage() == CP_UTF8 ?
+		telnet->ReadUtf8Source(line).ReadUtf8(telnet->site_settings.cols_per_page).AsciiColumns() : std::string();
+	const char* scan = projected.empty() ? line : projected.c_str();
+	const char* plink = scan;
+	int len;
+	while ((plink = AppConfig.hyper_links.FindHyperLink(plink, len)))
 	{
-		char* px = telnet->screen[y] + x;
-		if (px >= plink && px < plink + len)
-			return telnet->osc_links.Overlaps(telnet->screen[y],
-				static_cast<int>(plink - telnet->screen[y]), len) ? nullptr : plink;
+		const int begin = static_cast<int>(plink - scan);
+		if (x >= begin && x < begin + len && !telnet->osc_links.Overlaps(line, begin, len))
+			return CString(plink, len);
 		plink += len;
 	}
-	return nullptr;
+	return {};
 }
 
 void CTermView::OnCurConSettings()
@@ -2878,6 +2965,7 @@ CString CTermView::GetSelText()
 {
 	CString ret;
 	if (telnet && telnet->sync_output.Active()) return ret;
+	if (telnet && GetCodePage() == CP_UTF8) return GetUtf8Selection(false);
 	if (telnet != nullptr &&
 		(telnet->sel_end.x != telnet->sel_start.x ||
 			telnet->sel_end.y != telnet->sel_start.y))

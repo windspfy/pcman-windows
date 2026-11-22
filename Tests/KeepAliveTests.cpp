@@ -48,8 +48,9 @@ public:
 	void SendNaws() { ++naws; }
 	void OnIAC();
 	void ProcessData(int len);
+	bool source_limit_stopped = false;
 	int Send(const void* bytes, int count);
-	void OnText()
+	void OnText(bool = false)
 	{
 		while (buf < last_byte)
 		{

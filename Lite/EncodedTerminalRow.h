@@ -49,6 +49,18 @@ namespace TerminalCells
             int Columns() const { return static_cast<int>(cells_.size()); }
             bool Clipped() const { return clipped_; }
             const Cell& At(int column) const { return cells_.at(column); }
+            std::string AsciiColumns() const
+            {
+                std::string result(cells_.size(), ' ');
+                for (int x = 0; x < Columns(); ++x)
+                {
+                    const auto& cell = cells_[x];
+                    if (cell.width == 1 && cell.text.size() == 1 &&
+                        cell.text[0] >= U'!' && cell.text[0] <= U'~')
+                        result[x] = static_cast<char>(cell.text[0]);
+                }
+                return result;
+            }
             SourceRange Source(int column) const { return ranges_.at(column); }
             // A byte inside a wide/combining glyph maps to its lead cell. Bytes
             // outside the viewport map to Columns(), never an invalid cell.
@@ -270,6 +282,18 @@ namespace TerminalCells
             for (unsigned char byte : bytes) bytes_.push_back({byte, style});
         }
         const std::vector<Byte>& Bytes() const { return bytes_; }
+        // Legacy screen columns each store one byte. Preserve any source beyond
+        // the visible mirror when another charset writes into a retained row.
+        EncodedRow WriteByteCells(int column, const Byte* cells, int count) const
+        {
+            if (!cells || column < 0 || column >= 160 || count < 1 || count > 160 - column)
+                throw std::out_of_range("invalid legacy byte range");
+            auto next = bytes_;
+            if (next.size() < static_cast<std::size_t>(column + count))
+                next.resize(column + count);
+            std::copy_n(cells, count, next.begin() + column);
+            return EncodedRow(std::move(next));
+        }
         Projection ReadUtf8(int columns) const
         {
             CheckColumns(columns);
@@ -372,6 +396,16 @@ namespace TerminalCells
         }
         template<class Decode> EncodedRow CropLegacy(int columns, Decode decode) const { return Crop(ReadLegacy(columns, decode)); }
         EncodedRow SliceUtf8(int columns, int begin, int end) const { return Slice(ReadUtf8(columns), begin, end); }
+        static EncodedRow Shift(const Projection& view, int column, int count, bool insert)
+        {
+            const int cols = view.Columns();
+            view.CheckRange(column, column + count);
+            auto prefix = Slice(view, 0, column);
+            if (insert) Spaces(prefix.bytes_, count);
+            const auto suffix = Slice(view, insert ? column : column + count, insert ? cols - count : cols);
+            Append(prefix.bytes_, suffix.bytes_, 0, suffix.bytes_.size(), true);
+            return prefix;
+        }
         template<class Decode> EncodedRow SliceLegacy(int columns, int begin, int end, Decode decode) const
         {
             return Slice(ReadLegacy(columns, decode), begin, end);

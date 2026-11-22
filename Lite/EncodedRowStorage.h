@@ -55,6 +55,33 @@ namespace TerminalCells
             sourceBytes_ -= found->second.Bytes().size();
             rows_.erase(found);
         }
+        // Candidates own their map nodes before any screen row is recycled.
+        // The callback rotates/clears existing rows without allocating source.
+        template<class Rotate> bool CommitRows(std::map<const void*, EncodedRow>& candidates, Rotate rotate)
+        {
+            auto count = rows_.size();
+            auto bytes = sourceBytes_;
+            for (const auto& [row, value] : candidates)
+            {
+                const auto old = At(row).Bytes().size();
+                count -= old != 0;
+                bytes -= old;
+            }
+            for (const auto& [row, value] : candidates)
+            {
+                count += !value.Bytes().empty();
+                if (count > rowLimit_ || value.Bytes().size() > sourceLimit_ - bytes) return false;
+                bytes += value.Bytes().size();
+            }
+            for (const auto& [row, value] : candidates) Erase(row);
+            rotate();
+            for (auto it = candidates.begin(); it != candidates.end(); )
+                if (it->second.Bytes().empty()) it = candidates.erase(it);
+                else ++it;
+            rows_.merge(candidates);
+            sourceBytes_ = bytes;
+            return true;
+        }
         bool Copy(const void* destination, const void* source)
         {
             CheckIdentity(destination);

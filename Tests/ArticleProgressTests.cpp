@@ -1,3 +1,4 @@
+#include "../Lite/EncodedRowStorage.h"
 #include <afx.h>
 #include <cstdio>
 #include <cstdlib>
@@ -91,6 +92,11 @@ public:
     ~CTelnetConn() { delete download_article_dlg; download_article_dlg = nullptr; }
     void SendString(const char*) { ++sends; }
     CString GetLineWithAnsi(int y) { return CString("ANSI:") + screen[y]; }
+    bool is_ansi_editor = false;
+    TerminalCells::EncodedRowStorage encoded_rows{4,1024};
+    TerminalCells::EncodedRow ReadUtf8Source(const char* row) { return encoded_rows.At(row); }
+    CString GetUtf8Range(long, int, int, bool);
+    CString GetArticleLine(long, bool);
     void CopyArticleComplete(bool = false)
     {
         ++completes; is_getting_article = false; clipboard = downloaded_article;
@@ -167,6 +173,32 @@ static void InterfaceRegression()
 }
 int main()
 {
+    for (bool color : {false, true})
+    {
+        CTelnetConn c;
+        c.view->codePage = CP_UTF8;
+        std::string body;
+        for (int i = 0; i < 40; ++i) body += u8"日";
+        const std::string footer = body.substr(0, 84) + u8" (100%) 1~3 行";
+        c.encoded_rows.TrySet(c.screen[0], TerminalCells::EncodedRow(body, {1,0}));
+        c.encoded_rows.TrySet(c.screen[3], TerminalCells::EncodedRow(footer));
+        std::memcpy(c.screen[0], body.data(), 80);
+        std::memcpy(c.screen[3], footer.data(), 80);
+        c.CopyArticle(color, false);
+        Check(c.completes == 1 && c.clipboard.Find(body.c_str()) >= 0,
+            "UTF-8 article export reads full text and footer beyond byte column 80");
+        Check((c.clipboard.Find("\x1b[0;31;40m") >= 0) == color, "UTF-8 article export preserves requested color mode");
+        c.encoded_rows.TrySet(c.screen[3], TerminalCells::EncodedRow(u8"(50%) 1~3 行"));
+        c.CopyArticle(color, false);
+        Check(c.is_getting_article, "UTF-8 download waits for the next footer");
+        std::string next = body;
+        next.replace(next.size() - 3, 3, u8"末");
+        c.encoded_rows.TrySet(c.screen[2], TerminalCells::EncodedRow(next));
+        c.encoded_rows.TrySet(c.screen[3], TerminalCells::EncodedRow(u8"(100%) 2~4 行"));
+        c.ContinueCopyArticle();
+        Check(c.completes == 2 && c.clipboard.Find(next.c_str()) >= 0,
+            "next UTF-8 page preserves final wide character in the newly downloaded line");
+    }
     using namespace ArticleProgress;
     // Use the shipped B2U table, not a synthetic replacement mapping.
     std::ifstream tableFile("Lite/Release/PCMan/B2U", std::ios::binary);

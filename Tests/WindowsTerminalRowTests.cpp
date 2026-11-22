@@ -65,6 +65,9 @@ int main(int argc, char** argv)
     }
     // Fixed, independently known golden strings for the other existing menus.
     const WindowsRowDecoder gbk(936, converter), sjis(932, converter), western(1252, converter);
+    for (auto decoder : {gbk, sjis})
+        Check(EncodedRow("\x82 X").ReadLegacy(3, decoder).Text(0, 3) == U"\ufffd X",
+            "invalid DBCS lead leaves the following space in its own cell");
     Check(EncodedRow("A\xd6\xd0" "B").ReadLegacy(8, gbk).Text(0, 4) == U"A中B", "CP936 retains DBCS two-cell glyph");
     Check(EncodedRow("\x82\xa0\xb1").ReadLegacy(8, sjis).Text(0, 3) == U"あｱ", "CP932 distinguishes fullwidth DBCS and halfwidth single byte");
     Check(EncodedRow("\xe9").ReadLegacy(4, western).Text(0, 1) == U"é", "single-byte codepage does not mistake high byte for DBCS");

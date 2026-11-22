@@ -170,7 +170,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_COMMAND(ID_ADS, OnShowAddressBar)
 
 	ON_COMMAND(ID_INSTANT_TRAN, OnInstantTranslation)
-	ON_UPDATE_COMMAND_UI(ID_SET_CHARSET_DEFAULT, OnUpdateSetCharset)
+	ON_UPDATE_COMMAND_UI_RANGE(ID_SET_CHARSET_DEFAULT, ID_SET_CHARSET_UTF8, OnUpdateSetCharset)
 	ON_UPDATE_COMMAND_UI(ID_EXITLOG, OnUpdateSaveSession)
 	ON_NOTIFY(TCN_SELCHANGE, IDC_MAINTAB, OnSelchangeTab)
 	ON_NOTIFY(NM_RCLICK, IDC_MAINTAB, OnRClickTab)
@@ -251,13 +251,30 @@ CMainFrame::CMainFrame()
 	g_ucs2conv.InitUcs22Big5Tab();
 	g_pView = &view;
 	
-	setCharset = false;
 
 }
 
 CMainFrame::~CMainFrame()
 {
 	DestroyAcceleratorTable(m_hAccelTable);
+}
+
+namespace
+{
+	// Config.ini stores 1-based indices. Zero is the original unset value.
+	const UINT charsetCodePages[] = { CP_ACP, 950, 936, 932, CP_UTF8 };
+
+	UINT SelectedCharsetIndex()
+	{
+		const UINT saved = AppConfig.saved_charset;
+		return saved >= 1 && saved <= _countof(charsetCodePages) ? saved - 1 : 0;
+	}
+
+	UINT SelectedCodePage()
+	{
+		const UINT codePage = charsetCodePages[SelectedCharsetIndex()];
+		return codePage == CP_ACP ? ::GetACP() : codePage;
+	}
 }
 
 int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
@@ -358,6 +375,7 @@ int CMainFrame::OnCreate(LPCREATESTRUCT lpCreateStruct)
 //	Create the Main BBS View
 	view.Create(NULL, NULL, WS_VISIBLE, tmprc, this, 1);
 	view.parent = this;
+	view.SetCodePage(SelectedCodePage());
 
 //	Create Status Bar	(Static control)
 	status_bar.Create(NULL, WS_CLIPCHILDREN | WS_CHILD | SS_SUNKEN | SS_CENTERIMAGE, tmprc, this, IDC_STATUS);
@@ -554,7 +572,9 @@ void CMainFrame::UpdateStatus()
 	CString text;
 	if (telnet)
 	{
-		if (! telnet->is_ansi_editor)
+		if (telnet->source_limit_stopped)
+			text = "文字緩衝區容量不足，已停止此連線。";
+		else if (! telnet->is_ansi_editor)
 		{
 			int sec = telnet->time % 60;
 			int min = (telnet->time - sec) / 60;
@@ -750,30 +770,6 @@ void CMainFrame::OnNewConnectionAds(LPCTSTR cmdline)
 
 	view.Connect(addr, NameFromAddress(addr));
 
-	if(!setCharset)
-	{
-		switch(AppConfig.saved_charset)
-		{
-			case 0:
-				break;
-			
-			case 1:
-				this->OnSetCharset(ID_SET_CHARSET_DEFAULT);
-				break;
-			case 2:
-				this->OnSetCharset(ID_SET_CHARSET_CP950);
-				break;
-			case 3:
-				this->OnSetCharset(ID_SET_CHARSET_CP936);
-				break;
-			case 4:
-				this->OnSetCharset(ID_SET_CHARSET_CP932);
-				break;
-			case 5:
-				this->OnSetCharset(ID_SET_CHARSET_UTF8);
-				break;
-		}	
-	}
 	BringWindowToTop();
 }
 
@@ -1294,11 +1290,8 @@ void CMainFrame::OnUpdateEditOpenURL(CCmdUI* pCmdUI)
 
 void CMainFrame::OnUpdateSetCharset(CCmdUI* pCmdUI)
 {
-	if (pCmdUI->m_pSubMenu)
-	{
-		pCmdUI->m_pMenu->EnableMenuItem(pCmdUI->m_nIndex, MF_BYPOSITION |
-										((view.telnet) ? MF_ENABLED : MF_GRAYED));
-	}
+	if (!pCmdUI->m_pSubMenu)
+		pCmdUI->SetRadio(pCmdUI->m_nID == ID_SET_CHARSET_DEFAULT + SelectedCharsetIndex());
 }
 
 void CMainFrame::OnBackupConfig()
@@ -2540,30 +2533,8 @@ void CMainFrame::OpenLastSession()
 				}
 			}
 			view.ConnectStr(str, adv);
-			switch(AppConfig.saved_charset)
-			{
-				case 0:
-					break;
-	
-				case 1:
-					this->OnSetCharset(ID_SET_CHARSET_DEFAULT);
-					break;
-				case 2:
-					this->OnSetCharset(ID_SET_CHARSET_CP950);
-					break;
-				case 3:
-					this->OnSetCharset(ID_SET_CHARSET_CP936);
-					break;
-				case 4:
-					this->OnSetCharset(ID_SET_CHARSET_CP932);
-					break;
-				case 5:
-					this->OnSetCharset(ID_SET_CHARSET_UTF8);
-					break;
-			}
 		}
 		delete []buf;
-		//Restore Charset Setting
 	}
 		
 }
@@ -2588,71 +2559,14 @@ void CMainFrame::OnNewConn()
 	dlg.address.Empty();
 	
 	
-	if(!setCharset)
-	{
-		switch(AppConfig.saved_charset)
-		{
-			case 0:
-				break;
-			
-			case 1:
-				this->OnSetCharset(ID_SET_CHARSET_DEFAULT);
-				break;
-			case 2:
-				this->OnSetCharset(ID_SET_CHARSET_CP950);
-				break;
-			case 3:
-				this->OnSetCharset(ID_SET_CHARSET_CP936);
-				break;
-			case 4:
-				this->OnSetCharset(ID_SET_CHARSET_CP932);
-				break;
-			case 5:
-				this->OnSetCharset(ID_SET_CHARSET_UTF8);
-				break;
-		}	
-		
-	}
 
 }
 
 void CMainFrame::OnSetCharset(UINT nID)
 {
-	if (!view.telnet)
-		return;
-
-	static UINT prev_id = 0;
-
-	switch (nID)
-	{
-	case ID_SET_CHARSET_DEFAULT:
-		view.SetCodePage(::GetACP());
-		AppConfig.saved_charset = 1;
-		break;
-	case ID_SET_CHARSET_CP950:
-		view.SetCodePage(950);
-		AppConfig.saved_charset = 2;
-		break;
-	case ID_SET_CHARSET_CP936:
-		view.SetCodePage(936);
-		AppConfig.saved_charset = 3;
-		break;
-	case ID_SET_CHARSET_CP932:
-		view.SetCodePage(932);
-		AppConfig.saved_charset = 4;
-		break;
-	case ID_SET_CHARSET_UTF8:
-		view.SetCodePage(65001);
-		AppConfig.saved_charset = 5;
-		break;
-	}
-	setCharset = true;
-
-	CMenu* menu = GetMenu();
-	menu->CheckMenuItem(prev_id, MF_UNCHECKED);
-	menu->CheckMenuItem(nID, MF_CHECKED);
+	AppConfig.saved_charset = static_cast<BYTE>(nID - ID_SET_CHARSET_DEFAULT + 1);
+	view.SetCodePage(SelectedCodePage());
 	view.Invalidate(FALSE);
-	prev_id = nID;
 }
 
 void CMainFrame::OnBBSFont()

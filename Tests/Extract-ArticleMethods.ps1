@@ -6,6 +6,7 @@ catch { $source = [Text.Encoding]::GetEncoding(950).GetString($bytes) }
 $parts = @()
 foreach ($bounds in @(
     @('int CTelnetConn::IsEndOfArticleReached()', 'bool CTelnetConn::UseSgr66'),
+    @('CString CTelnetConn::GetUtf8Range(', 'CString CTelnetConn::GetLineWithAnsi('),
     @('void CTelnetConn::CopyArticle(bool', 'void CTelnetConn::CopyArticleComplete(bool')
 )) {
     $start = $source.IndexOf($bounds[0], [StringComparison]::Ordinal)

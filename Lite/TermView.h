@@ -125,7 +125,7 @@ public:
 		}
 	}
 
-	const char* HyperLinkHitTest(CPoint client_point, int& len);
+	CString HyperLinkHitTest(CPoint client_point);
 	void PtToLineCol(POINT pt, int& x, int& y, bool adjust_x = true);
 
 // Generated message map functions
@@ -139,6 +139,7 @@ public:
 	void UpdateImeCompositionFont();
 	void SetCursorPos(int text_x, int text_y);
 	CString GetSelText();
+	CString GetUtf8Selection(bool withColor);
 	void FindStart();
 
 
@@ -147,6 +148,7 @@ public:
 	inline void DrawLink(CDC &dc, LPSTR line, LPBYTE atbline, int y);
 	inline void DrawLine(CDC &dc, LPCSTR line, BYTE* pline_selstart, BYTE* pline_selend, int y);
 	inline void DrawLineBlink(CDC &dc, LPCSTR line, int y);
+	void DrawUtf8Line(CDC& dc, LPCSTR line, BYTE* selectionBegin, BYTE* selectionEnd, int y);
 	void DrawBlink();
 	void DrawScreen(CDC& dc);
 	void SendAnsiString(CString data);

@@ -3,9 +3,9 @@ $ErrorActionPreference = 'Stop'
 $source = [Text.UTF8Encoding]::new($false, $true).GetString(
     [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../Lite/TelnetConn.cpp')))
 $parts = @()
-foreach ($signature in @('void CTelnetConn::WriteReceivedGlyph(', 'void CTelnetConn::FinishBig5Text(', 'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
+foreach ($signature in @('void CTelnetConn::WriteReceivedGlyph(', 'void CTelnetConn::FinishBig5Text(', 'TerminalCells::EncodedRow CTelnetConn::ReadUtf8Source(', 'void CTelnetConn::MirrorUtf8Row(', 'void CTelnetConn::WriteUtf8Glyph(', 'void CTelnetConn::FinishReceivedText(', 'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
     'bool CTelnetConn::UseSgr66(', 'inline void CTelnetConn::SetCurrentAttributes(',
-    'CString CTelnetConn::GetLineWithAnsi(', 'CString AttrToStr(')) {
+    'CString CTelnetConn::GetUtf8Range(', 'CString CTelnetConn::GetLineWithAnsi(', 'CString AttrToStr(')) {
     $start = $source.IndexOf($signature, [StringComparison]::Ordinal)
     if ($start -lt 0) { throw "Missing production method: $signature" }
     $body = $source.IndexOf('{', $start)
@@ -21,7 +21,7 @@ foreach ($signature in @('void CTelnetConn::WriteReceivedGlyph(', 'void CTelnetC
 }
 $source = [Text.UTF8Encoding]::new($false, $true).GetString(
     [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot '../Lite/TermView.cpp')))
-foreach ($signature in @('CString CTermView::GetSelAnsi(', 'void CTermView::SendAnsiString(')) {
+foreach ($signature in @('CString CTermView::GetUtf8Selection(', 'CString CTermView::GetSelAnsi(', 'void CTermView::SendAnsiString(')) {
     $start = $source.IndexOf($signature, [StringComparison]::Ordinal)
     if ($start -lt 0) { throw "Missing production method: $signature" }
     $body = $source.IndexOf('{', $start)

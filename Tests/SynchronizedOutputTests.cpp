@@ -27,6 +27,8 @@ class CTelnetConn
 public:
     AnsiSequenceParser parser;
     SynchronizedOutput sync_output;
+    bool source_limit_stopped = false;
+    TerminalCells::EncodedRowStorage encoded_rows{8, 128};
     OscHyperlinks osc_links, osc_snapshot;
     char model[4] = { 'O', 'L', 'D', 7 };
     char* screen[1] = { model };
@@ -66,6 +68,20 @@ int main()
 {
     const std::string begin = "\x1b[?2026h", end = "\x1b[?2026l";
     const std::string input = begin + "N" + end;
+    {
+        CTelnetConn t;
+        using Row = TerminalCells::EncodedRow;
+        Row oldRow({{0xe4, {3,0}}, {0xb8, {3,0}}, {0xad, {3,0}}, {'A', {7,0}}});
+        Check(t.encoded_rows.TrySet(t.model, oldRow), "seed complete three-column UTF-8 row");
+        t.Feed(begin);
+        t.encoded_rows.Erase(t.model);
+        const auto* frozen = t.sync_output.EncodedSource(t.sync_output.Row(0));
+        Check(frozen && frozen->ReadUtf8(3).Text(0,3) == U"\u4e2dA" &&
+            frozen->ReadUtf8(3).At(0).style.attribute == 3, "frozen row retains all four UTF-8 bytes and color");
+        Check(!t.sync_output.EncodedSource(t.model), "live writes cannot read frozen source");
+        t.Feed(end + begin);
+        Check(!t.sync_output.EncodedSource(t.sync_output.Row(0)), "next frame drops earlier UTF-8 source");
+    }
     for (std::size_t split = 0; split <= input.size(); ++split)
     {
         CTelnetConn t;

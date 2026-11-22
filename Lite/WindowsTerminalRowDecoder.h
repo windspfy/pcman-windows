@@ -51,6 +51,8 @@ namespace TerminalCells
                 : ::MultiByteToWideChar(codePage_, MB_ERR_INVALID_CHARS, bytes,
                     static_cast<int>(length), text, 2);
             char32_t scalar = U'\ufffd';
+            if (!count && codePage_ != 950 && length == 2)
+                return {scalar, 1, 1}; // Reconsider the next byte as a separate glyph.
             if (count == 1 && !(text[0] >= 0xd800 && text[0] <= 0xdfff))
                 scalar = static_cast<char32_t>(text[0]);
             // Legacy screen columns are byte cells, including an unmapped pair.
