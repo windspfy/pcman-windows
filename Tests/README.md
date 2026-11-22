@@ -21,7 +21,7 @@ MSBuild Tests/TerminalBoundaryTests.vcxproj /p:Configuration=Debug /p:Platform=W
 ./Tests/bin/Debug/TerminalBoundaryTests.exe
 ```
 
-`Sgr66Tests` 會讀取同組態 PCMan 的選單資源。`WindowsTerminalRowTests` 需要字碼表目錄參數，例如 `./Tests/bin/Debug/WindowsTerminalRowTests.exe Lite/Release/PCMan`。各模型的規格與歷史驗證見[格模型](../Docs/Terminal-Cell-Model-Validation.md)、[原始列](../Docs/Encoded-Row-Validation.md)、[列生命週期](../Docs/Encoded-Row-Lifecycle-Validation.md)及[串流解碼](../Docs/Encoded-Text-Decoder-Validation.md)。
+`Sgr66Tests` 會讀取同組態 PCMan 的選單資源。`WindowsTerminalRowTests` 需要字碼表目錄參數，例如 `./Tests/bin/Debug/WindowsTerminalRowTests.exe Lite/Release/PCMan`。各模型的規格見[終端文字模型](../Docs/Terminal-Model.md)。
 
 | PowerShell 入口 | 用途與執行時機 |
 | --- | --- |
