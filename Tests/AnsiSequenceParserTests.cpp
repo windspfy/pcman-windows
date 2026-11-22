@@ -185,7 +185,7 @@ static void OscStrings()
 	}
 }
 
-int main()
+int RunAnsiSequenceParserTests()
 {
 	OpaqueStrings();
 	OscStrings();

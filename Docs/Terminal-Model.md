@@ -13,7 +13,7 @@
 | `Lite/WindowsTerminalRowDecoder.h` | `WindowsRowDecoder`：重用正式 `CUcs2Conv` 與 Windows DBCS 分類的 legacy adapter |
 | `Lite/EncodedRowStorage.h` | 稀疏列儲存，以列身分保存非空來源 |
 | `Lite/EncodedTextDecoder.h` | 接收串流解碼，回傳 glyph 批次 |
-| `Tests/TerminalCellModelTests`、`WindowsTerminalRowTests`、`EncodedTextDecoderTests` | 上述各 Module 的自動測試 |
+| `Tests/TerminalCellModelTests.cpp`、`WindowsTerminalRowTests`、`Tests/EncodedTextDecoderTests.cpp` | 上述各 Module 的自動測試 |
 
 各 Module 不開 socket，不操作全域選單、GDI 或剪貼簿，也不持有第二套游標；使用端必須依既有全域編碼選單選擇 codec。
 

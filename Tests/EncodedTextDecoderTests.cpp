@@ -404,8 +404,9 @@ static void FramingCases()
     sync.Feed("\xe4\x1b[?2026h\xb8\xad\x1b[?2026l");
     Check(Scalars(sync.out) == U"中", "presentation sync events do not flush a text prefix");
 }
-int main()
+int RunEncodedTextDecoderTests()
 {
     Utf8Cases(); LegacyCases(); ReceiveSourceWrites(); ReceiveCommitCases(); EncodingChangesAndFailures(); FramingCases(); BytePairCoverage();
     std::printf("PASS: %u encoded text decoder checks\n", checks);
+    return 0;
 }
