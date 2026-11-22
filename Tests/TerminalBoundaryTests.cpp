@@ -59,9 +59,11 @@ struct CTermView
 };
 struct { int sound = 0; CString wavepath; bool old_textout = false; } AppConfig;
 struct CConn { void ClearAllFlags() {} };
+#include "../Lite/PttWraps.h"
 class CTelnetConn : public CConn
 {
 public:
+    PttFilter::Wraps filter_wraps;
     enum { MAX_LINE_COUNT = 32767 };
     struct Settings
     {

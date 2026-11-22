@@ -22,9 +22,12 @@ struct FakeView
     void HideCaret() { ++hidden; }
     void Invalidate(int) { ++repaints; }
 };
+#include "../Lite/PttWraps.h"
 class CTelnetConn
 {
 public:
+    PttFilter::Wraps filter_wraps;
+    std::vector<PttFilter::Wrap> filter_snapshot_wraps;
     AnsiSequenceParser parser;
     SynchronizedOutput sync_output;
     bool source_limit_stopped = false;

@@ -31,6 +31,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="UnitTests.cpp" />
+    <ClCompile Include="PttFilterTests.cpp" />
     <ClCompile Include="AnsiSequenceParserTests.cpp" />
     <ClCompile Include="OscHyperlinkTests.cpp" />
     <ClCompile Include="TerminalCellModelTests.cpp" />

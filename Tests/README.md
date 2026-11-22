@@ -6,7 +6,7 @@
 
 | 測試專案（Tests 目錄） | 驗證範圍 |
 | --- | --- |
-| UnitTests | 純標頭單元測試（單一 exe）：CSI／控制字串與分段解析；OSC 8 目標和列範圍；字寬、原始列與儲存生命週期；串流解碼及跨封包邊界 |
+| UnitTests | 純標頭單元測試（單一 exe）：CSI／控制字串與分段解析；OSC 8 目標和列範圍；字寬、原始列與儲存生命週期；串流解碼及跨封包邊界；PTT 黑名單、關鍵字、畫面欄位與折行來源 |
 | WindowsTerminalRowTests | 使用正式 Windows 碼頁與 UAO 表驗證列投影 |
 | TerminalBoundaryTests、SynchronizedOutputTests | 正式收字與游標、折行、編碼切換；同步快照與可讀時機 |
 | Sgr66Tests、ArticleProgressTests | ANSI 色彩與選單資源；文章進度、跨頁與文字匯出 |
@@ -32,6 +32,12 @@ MSBuild Tests/TerminalBoundaryTests.vcxproj /p:Configuration=Debug /p:Platform=W
 
 PR #15 已啟用普通 CSI 6n 回覆，實站及本機測試範圍見[目前進度與待辦](../Docs/PTT-Compatibility-Checklist.md#目前進度與待辦)。SGR Mouse 仍暫緩。人工回歸入口見[終端邊界](../Docs/Terminal-Boundary-Validation.md)、[SGR 66](../Docs/SGR66-Validation.md)、[OSC 8](../Docs/OSC-Validation.md)、[DEC2026](../Docs/DEC2026-Validation.md)及[PTT 新介面](../Docs/PTT-Interface-Regression.md)。
 
+## PTT 黑名單視窗回放
+
+執行 `./Tests/Start-PttFilterFixture.ps1 -Encoding Big5`（也可用 `UTF8`），在 PCMan 選擇對應字碼與 80×24 欄列。以測試環境中已解析至 127.0.0.1 的 PTT2 測試主機名稱連接埠 22318。直接使用 127.0.0.1 可驗證其他 BBS 的原文顯示。測試站只監聽本機，不需要登入帳密。
+
+在「選項」新增帳號 Alice（跟隨預設）、帳號 Bob（推文標色）及關鍵字「暴雷」（隱藏）。按 `a`、`l` 查看文章與列表，核對帳號、正文、分類及時間；選取星號、隱藏文字並複製核對原文。按 `e`、`m`、`u` 檢查看到原文，再按 `a` 返回。按 `w`、`n`、`p` 分別回播放在行尾的「暴」與下一行的「雷」；只有 `w` 是終端機可確認的自動折行。按 `q` 結束。
+
 ## 自動測試
 
 使用 Visual Studio Developer PowerShell，在專案根目錄執行：
@@ -43,7 +49,7 @@ MSBuild Tests/UnitTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=
 ./Tests/bin/Release/UnitTests.exe
 ```
 
-`UnitTests` 由 `AnsiSequenceParserTests`、`OscHyperlinkTests`、`TerminalCellModelTests`、`EncodedTextDecoderTests` 四個來源檔組成，依序執行，任一失敗即回傳非零。
+`UnitTests` 由 `AnsiSequenceParserTests`、`OscHyperlinkTests`、`TerminalCellModelTests`、`EncodedTextDecoderTests` 及 `PttFilterTests` 五個來源檔組成，依序執行，任一失敗即回傳非零。
 
 測試直接包含正式程式使用的 `Lite/AnsiSequenceParser.h`，不是另外模擬一份解析器。
 檢查既有指令分派、所有私有前綴與 final byte 組合、中間字元、未知指令、

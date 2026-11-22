@@ -5,6 +5,7 @@
 
 #include "stdafx.h"
 #include "TelnetConn.h"
+#include "PttFilterDialog.h"
 
 #include "TermView.h"
 #include "listdlg.h"
@@ -443,7 +444,11 @@ void CTelnetConn::WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks:
 		osc_links.Erase(edge, column, cols - column);
 		SetUpdateWholeLine(cursor_pos.y);
 	}
+	const char* previousRow = screen[cursor_pos.y];
 	if (placement.lineFeed) LineFeed();
+	if (placement.column == 0)
+		filter_wraps.Start(screen[cursor_pos.y], placement.lineFeed ? previousRow : nullptr, placement.clearEdge);
+	else if (legacy_run_start) filter_wraps.Forget(screen[cursor_pos.y]);
 	LPSTR curstr = screen[cursor_pos.y];
 	LPBYTE pcuratb = GetLineAttr(curstr);
 	const int column = placement.column;
@@ -627,7 +632,12 @@ void CTelnetConn::WriteUtf8Glyph(const TerminalCells::EncodedTextDecoder::Glyph&
 					osc_links.Erase(update.edge, cols - 1, 1);
 					SetUpdateWholeLine(cursor_pos.y);
 				}
+				const char* previousRow = screen[cursor_pos.y];
 				if (update.placement.lineFeed) LineFeed();
+				if (update.placement.column == 0)
+					filter_wraps.Start(screen[cursor_pos.y], update.placement.lineFeed ? previousRow : nullptr, update.placement.clearEdge);
+				else if (legacy_run_start && update.placement.column > 0) filter_wraps.Forget(screen[cursor_pos.y]);
+				if (update.placement.column >= 0) legacy_run_start = false;
 				SetUpdateWholeLine(cursor_pos.y);
 			}
 		})) return StopForSourceLimit();
@@ -884,6 +894,9 @@ void CTelnetConn::BeginSynchronizedOutput()
 		site_settings.lines_per_page, GetLineBufLen(), &encoded_rows))
 	{
 		sync_scroll_pos = scroll_pos;
+		filter_snapshot_wraps.assign(site_settings.lines_per_page, PttFilter::Wrap::Separate);
+		for (int i = 1; i < site_settings.lines_per_page; ++i)
+			filter_snapshot_wraps[i] = filter_wraps.Between(screen[scroll_pos+i-1], screen[scroll_pos+i]);
 		osc_snapshot.Reset();
 		for (int i = 0; i < site_settings.lines_per_page; ++i)
 			osc_snapshot.CopyFrom(osc_links, sync_output.Row(i), 0, screen[scroll_pos + i],
@@ -964,6 +977,11 @@ void CTelnetConn::OnClose()
 
 void CTelnetConn::UpdateLine(int line)
 {
+	if (ptt_filter_site && !PttFilter::Current().Empty())
+	{
+		view->Invalidate(FALSE);
+		return;
+	}
 	CRect rc;
 	rc.top = (line - scroll_pos) * view->lineh + view->top_margin;
 	LPBYTE attrib = GetLineAttr(line);
@@ -984,6 +1002,7 @@ void CTelnetConn::UpdateLine(int line)
 
 void CTelnetConn::ClearCurrentLine(int param)
 {
+	filter_wraps.Forget(screen[cursor_pos.y]);
 	const int cols = site_settings.cols_per_page;
 	const int x = static_cast<int>((std::clamp)(cursor_pos.x, 0L, static_cast<long>(cols)));
 	char* row = screen[cursor_pos.y];
@@ -1017,6 +1036,7 @@ void CTelnetConn::ClearCurrentLine(int param)
 
 void CTelnetConn::ClearScreen(int param)
 {
+	filter_wraps.Reset();
 	long a;
 
 	for (a = 0;a < site_settings.line_count - site_settings.lines_per_page;a++)	//中間每行的指標都往前移動24行
@@ -1239,6 +1259,9 @@ int find_sub_str(char* str, char* sub)
 
 void CTelnetConn::OnConnect(bool success)
 {
+	ptt_filter_site = success && address.IsValid() && KeepAlive::IsPttHost(LPCTSTR(address.Server()));
+	filter_article = {};
+	filter_wraps.Reset();
 	// Never carry an unfinished OSC/CSI or Telnet negotiation into a new session.
 	ansi_parser.Reset();
 	*ansi_param = 0;
@@ -1616,6 +1639,7 @@ void CTelnetConn::ShiftUtf8Cells(int count, bool insert)
 
 void CTelnetConn::InsertChar(int n)
 {
+	filter_wraps.Forget(screen[cursor_pos.y]);
 	if (view->GetCodePage() == CP_UTF8) { ShiftUtf8Cells(n, true); return; }
 	if (n <= 0)
 		n = 1;
@@ -2050,6 +2074,7 @@ char* CTelnetConn::ResizeLine(int line, int newl)
 
 void CTelnetConn::ReSizeBuffer(long new_line_count, int new_cols_per_page, int new_lines_per_page)
 {
+	filter_wraps.Reset();
 	if (source_limit_stopped) return;
 	if (new_cols_per_page < site_settings.cols_per_page && encoded_rows.StoredRows() &&
 		!encoded_rows.TryCropAll([&](const TerminalCells::EncodedRow& row) {
@@ -2431,6 +2456,7 @@ void CTelnetConn::CheckHyperLinks()
 
 void CTelnetConn::Delete(int num)
 {
+	filter_wraps.Forget(screen[cursor_pos.y]);
 	if (is_ansi_editor && view->GetCodePage() == CP_UTF8) { ShiftUtf8Cells(num, false); return; }
 	if (num <= 0)	num = 1;
 	LPSTR curstr = screen[cursor_pos.y];

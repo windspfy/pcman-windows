@@ -22,6 +22,8 @@
 #include "TcpSocket.h"
 #include "AnsiSequenceParser.h"
 #include "ArticleProgress.h"
+#include "PttFilter.h"
+#include "PttWraps.h"
 #include "SynchronizedOutput.h"
 #include "OscHyperlinks.h"
 #include "EncodedRowStorage.h"
@@ -74,6 +76,10 @@ public:
 		MIN_LINE_COUNT = 24
 	};
 
+	bool ptt_filter_site = false;
+	PttFilter::Article filter_article;
+	PttFilter::Wraps filter_wraps;
+	std::vector<PttFilter::Wrap> filter_snapshot_wraps;
 	CString cfg_path;	//站台進階設定檔相對路徑
 	CKeyMap* key_map;	//鍵盤對映
 
@@ -336,6 +342,7 @@ inline LPBYTE CTelnetConn::GetLineAttr(const int line, const int len)
 
 inline void CTelnetConn::InitNewLine(char *line)
 {
+	filter_wraps.Forget(line);
 	encoded_rows.Erase(line);
 	osc_links.Clear(line);
 	LPBYTE attr = GetLineAttr(line);

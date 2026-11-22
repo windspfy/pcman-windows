@@ -381,6 +381,7 @@
       <BrowseInformation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</BrowseInformation>
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">MaxSpeed</Optimization>
     </ClCompile>
+    <ClCompile Include="PttFilterDialog.cpp" />
     <ClCompile Include="PCMan.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
       <BasicRuntimeChecks Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">EnableFastChecks</BasicRuntimeChecks>
@@ -544,6 +545,10 @@
     <ClInclude Include="InstantTranDlg.h" />
     <ClInclude Include="KeyMap.h" />
     <ClInclude Include="KeepAlive.h" />
+    <ClInclude Include="PttFilter.h" />
+    <ClInclude Include="PttFilterScreen.h" />
+    <ClInclude Include="PttWraps.h" />
+    <ClInclude Include="PttFilterDialog.h" />
     <ClInclude Include="ArticleProgress.h" />
     <ClInclude Include="SynchronizedOutput.h" />
     <ClInclude Include="KeepAliveConfig.h" />
@@ -587,6 +592,7 @@
     <None Include="..\Resource\res\copy_cur.cur" />
     <None Include="..\Resource\res\drag_cur.cur" />
     <None Include="..\Resource\res\hand.cur" />
+    <None Include="..\Resource\PttFilter.rc2" />
     <None Include="..\Resource\Version_Resource_Lite.rc2" />
     <None Include="..\Resource\res\page_cur.cur" />
     <None Include="..\Resource\res\topic_cur.cur" />

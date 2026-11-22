@@ -7,6 +7,7 @@
 #include "PCMan.h"
 
 #include "MainFrm.h"
+#include "PttFilterDialog.h"
 #include "../BuildMenu/BuildMenu.h"
 #include "WinUtils.h"
 #include "CustomizeDlg.h"
@@ -71,6 +72,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_COMMAND(ID_SEND_ANSICODE, OnShowAnsiBar)
 	ON_COMMAND_RANGE(ID_ANSI_FORMAT_AUTO, ID_ANSI_FORMAT_SGR66, OnAnsiOutputFormat)
 	ON_UPDATE_COMMAND_UI_RANGE(ID_ANSI_FORMAT_AUTO, ID_ANSI_FORMAT_SGR66, OnUpdateAnsiOutputFormat)
+	ON_COMMAND(ID_PTT_FILTER, OnPttFilter)
 	ON_COMMAND(ID_ANSI_FORMAT_HELP, OnAnsiOutputFormatHelp)
 	ON_COMMAND(ID_SHOW_SCROLL, OnShowScroll)
 	ON_COMMAND(ID_SETDEFAULT, OnSetDefaultProgram)
@@ -1619,6 +1621,7 @@ BOOL CMainFrame::LoadUI()
 	auto_dbcs_menu = GetSubMenu(GetSubMenu(main_menu, 2), 7);
 	ansi_menu =::GetSubMenu(main_menu, 5);
 	AppendAnsiOutputMenu(main_menu);
+	::AppendMenuW(::GetSubMenu(main_menu, 2), MF_STRING, ID_PTT_FILTER, L"PTT／PTT2 黑名單與關鍵字…");
 	bbs_fav_menu =::GetSubMenu(main_menu, 3);
 
 	MENUITEMINFO inf;
@@ -2629,6 +2632,11 @@ void CMainFrame::OnUpdateAnsiOutputFormat(CCmdUI* pCmdUI)
 	pCmdUI->SetRadio(static_cast<int>(pCmdUI->m_nID - ID_ANSI_FORMAT_AUTO) ==
 		Sgr66::NormalizeFormat(AppConfig.ansi_output_format));
 	pCmdUI->Enable(TRUE);
+}
+
+void CMainFrame::OnPttFilter()
+{
+	if (PttFilter::Edit(m_hWnd)) view.Invalidate(FALSE);
 }
 
 void CMainFrame::OnAnsiOutputFormatHelp()

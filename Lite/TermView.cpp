@@ -5,6 +5,9 @@
 #include "WinUtils.h"
 
 #include "TermView.h"
+#include "WindowsTerminalRowDecoder.h"
+#include "PttFilterDialog.h"
+#include "PttFilterScreen.h"
 #include "ListDlg.h"
 #include "MainFrm.h"
 #include "SetBkDlg.h"
@@ -2187,6 +2190,87 @@ BOOL CTermView::OnMouseWheel(UINT nFlags, short zDelta, CPoint point_In)
 	return CWnd::OnMouseWheel(nFlags, zDelta, pt);
 }
 
+struct FilterRow
+{
+	std::wstring text;
+	std::vector<int> offsets;  // UTF-16 offset for each terminal column
+	std::vector<BYTE> attributes;
+	std::vector<PttFilter::Effect> effects;
+};
+
+static FilterRow ProjectFilterRow(CTelnetConn& conn, const char* line, UINT cp)
+{
+	FilterRow result;
+	const int cols = conn.site_settings.cols_per_page;
+	const auto source = conn.ReadUtf8Source(line);
+	const auto row = cp == CP_UTF8 ? source.ReadUtf8(cols) :
+		source.ReadLegacy(cols, TerminalCells::WindowsRowDecoder(cp, g_ucs2conv));
+	for (int x = 0; x < cols;)
+	{
+		const auto& glyph = row.At(x);
+		for (unsigned int n = 0; n < glyph.width; ++n)
+		{
+			result.offsets.push_back(static_cast<int>(result.text.size()));
+			result.attributes.push_back(cp == CP_UTF8 ? glyph.style.attribute : conn.GetLineAttr(line)[x+n]);
+		}
+		for (auto c : glyph.text)
+		{
+			if (c > 0xffff)
+			{
+				c -= 0x10000;
+				result.text += wchar_t(0xd800 + (c >> 10));
+				c = 0xdc00 + (c & 0x3ff);
+			}
+			result.text += wchar_t(c);
+		}
+		x += glyph.width;
+	}
+	result.offsets.push_back(static_cast<int>(result.text.size()));
+	return result;
+}
+
+static std::vector<FilterRow> FilterFrame(CTelnetConn& conn, UINT cp, int start)
+{
+	std::vector<FilterRow> frame;
+	if (!conn.ptt_filter_site || PttFilter::Current().Empty() ||
+		(cp != 950 && cp != CP_UTF8)) return frame;
+	const int height = conn.site_settings.lines_per_page;
+	std::vector<std::wstring> text;
+	std::vector<PttFilter::Wrap> wraps(height);
+	ArticleProgress::Progress progress;
+	for (int y = 0; y < height; ++y)
+	{
+		const char* line = conn.sync_output.Active() ? conn.sync_output.Row(y) : conn.screen[start+y];
+		frame.push_back(ProjectFilterRow(conn, line, cp));
+		text.push_back(frame.back().text);
+		if (y)
+			wraps[y] = conn.sync_output.Active() ? conn.filter_snapshot_wraps[y] :
+				conn.filter_wraps.Between(conn.screen[start+y-1], line);
+		if (y == height-1)
+		{
+			const auto footer = conn.ReadUtf8Source(line);
+			if (cp == CP_UTF8)
+			{
+				const auto bytes = footer.ReadUtf8(conn.site_settings.cols_per_page).RawText(0,conn.site_settings.cols_per_page);
+				progress = ArticleProgress::Parse(bytes.data(), bytes.size());
+			}
+			else progress = ArticleProgress::Parse(line, conn.site_settings.cols_per_page);
+		}
+	}
+	const auto masks = PttFilter::Analyze(PttFilter::Current(), text, wraps, progress.first, progress.last, conn.filter_article);
+	for (size_t y = 0; y < frame.size(); ++y)
+	{
+		auto& row = frame[y];
+		if (masks[y].empty()) continue;
+		row.effects.resize(row.attributes.size());
+		for (const auto& span : masks[y])
+			for (size_t x = 0; x < row.effects.size(); ++x)
+				if (size_t(row.offsets[x]) >= span.begin && size_t(row.offsets[x]) < span.end &&
+					row.effects[x] < span.effect) row.effects[x] = span.effect;
+	}
+	return frame;
+}
+
 inline void CTermView::DrawScreen(CDC &dc)
 {
 	if (!telnet) { FillBk(dc); return; }
@@ -2222,6 +2306,7 @@ inline void CTermView::DrawScreen(CDC &dc)
 	BYTE* pline_selstart;	//設為最大
 	BYTE* pline_selend;	//設為最小
 	const int displayStart = telnet->sync_output.Active() ? telnet->sync_scroll_pos : telnet->scroll_pos;
+	const auto frame = FilterFrame(*telnet, GetCodePage(), displayStart);
 	int last_line = displayStart + telnet->site_settings.lines_per_page;
 	for (int i = displayStart ; i < last_line; i++)
 	{
@@ -2246,15 +2331,86 @@ inline void CTermView::DrawScreen(CDC &dc)
 		else
 			pline_selstart = pline_selend = NULL;
 
+		const FilterRow* filtered = frame.empty() ? nullptr : &frame[i-displayStart];
+		const bool hasMasks = filtered && !filtered->effects.empty();
+		std::vector<char> legacyDisplay;
+		LPSTR drawLine = displayLine;
+		if (hasMasks && GetCodePage() != CP_UTF8)
+		{
+			// Use the normal Big5 renderer for masked cells, including its
+			// configured font metrics, split attributes and selection handling.
+			legacyDisplay.assign(displayLine, displayLine + telnet->GetLineBufLen());
+			drawLine = legacyDisplay.data();
+			auto* drawAttrs = telnet->GetLineAttr(drawLine);
+			if (pline_selstart) pline_selstart = drawAttrs + (pline_selstart - atbline);
+			if (pline_selend) pline_selend = drawAttrs + (pline_selend - atbline);
+			for (size_t x = 0; x < filtered->effects.size(); ++x)
+			{
+				if (filtered->effects[x] == PttFilter::Effect::Stars) drawLine[x] = '*';
+				if (filtered->effects[x] == PttFilter::Effect::Hide) drawLine[x] = ' ';
+			}
+		}
+		const int saved = hasMasks ? dc.SaveDC() : 0;
+		if (saved)
+		{
+			for (int x = 0; x < int(filtered->effects.size()); ++x)
+				if (filtered->effects[x] == PttFilter::Effect::Color ||
+					(legacyDisplay.empty() && filtered->effects[x] != PttFilter::Effect::None))
+					dc.ExcludeClipRect(left_margin+x*chw, y, left_margin+(x+1)*chw, y+lineh);
+		}
+
 		if (GetCodePage() == CP_UTF8)
 			DrawUtf8Line(dc, displayLine, pline_selstart, pline_selend, y);
 		else if (AppConfig.old_textout)
-			DrawLineOld(dc, displayLine, pline_selstart, pline_selend, y);
+			DrawLineOld(dc, drawLine, pline_selstart, pline_selend, y);
 		else
-			DrawLine(dc, displayLine, pline_selstart, pline_selend, y);
+			DrawLine(dc, drawLine, pline_selstart, pline_selend, y);
 
 		if (AppConfig.link_underline)
+		{
+			if (saved && !legacyDisplay.empty())
+				for (int x = 0; x < int(filtered->effects.size()); ++x)
+					if (filtered->effects[x] != PttFilter::Effect::None)
+						dc.ExcludeClipRect(left_margin+x*chw, y, left_margin+(x+1)*chw, y+lineh);
 			DrawLink(dc, displayLine, atbline, y);
+		}
+		if (saved)
+		{
+			dc.RestoreDC(saved);
+			const auto& row = *filtered;
+			const auto& settings = PttFilter::Current();
+			for (int x = 0; x < int(row.effects.size()); ++x)
+			{
+				const auto effect = row.effects[x];
+				if (effect == PttFilter::Effect::None ||
+					(!legacyDisplay.empty() && effect != PttFilter::Effect::Color)) continue;
+				const auto* attrCell = telnet->GetLineAttr(drawLine) + x;
+				const bool selected = pline_selstart && attrCell >= pline_selstart && attrCell < pline_selend;
+				const BYTE attr = row.attributes[x];
+				CRect rect(left_margin+x*chw, y, left_margin+(x+1)*chw, y+lineh);
+				UINT options = SetDCColors(&dc, attr, selected);
+				if (effect == PttFilter::Effect::Color)
+				{
+					const COLORREF invert = selected ? 0xffffff : 0;
+					if (settings.foreground >= 0) dc.SetTextColor(AppConfig.colormap[settings.foreground] ^ invert);
+					if (settings.background >= 0)
+					{
+						dc.SetBkColor(AppConfig.colormap[settings.background] ^ invert);
+						options |= ETO_OPAQUE;
+					}
+				}
+				if (!(options & ETO_OPAQUE)) FillBkRect(dc, rect, attr, selected);
+				int lead = x, end = x+1;
+				while (lead && row.offsets[lead-1] == row.offsets[x]) --lead;
+				while (row.offsets[end] == row.offsets[x]) ++end;
+				const bool star = effect == PttFilter::Effect::Stars;
+				const bool visible = effect != PttFilter::Effect::Hide &&
+					(!IsAttrBlink(attr) || blight || telnet->sel_end != telnet->sel_start);
+				::ExtTextOutW(dc.m_hDC, left_margin+(star ? x : lead)*chw, y, options | ETO_CLIPPED, rect,
+					star ? L"*" : row.text.data()+row.offsets[x], visible ? (star ? 1 : row.offsets[end]-row.offsets[x]) : 0, nullptr);
+			}
+		}
+
 		y += lineh;
 	}
 	SelectObject(dc.m_hDC, fold);
@@ -2494,7 +2650,7 @@ inline void CTermView::DrawBlink()
 {
 	if (!telnet || telnet->sync_output.Active())
 		return;
-	if (GetCodePage() == CP_UTF8)
+	if (GetCodePage() == CP_UTF8 || (telnet->ptt_filter_site && !PttFilter::Current().Empty()))
 	{
 		for (int i = 0; i < telnet->site_settings.lines_per_page; ++i)
 		{

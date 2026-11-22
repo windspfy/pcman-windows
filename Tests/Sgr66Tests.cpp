@@ -53,9 +53,11 @@ struct CTermView
     void SendAnsiString(CString);
 };
 struct { struct { BOOL paste_autowrap = TRUE; } site_settings; int ansi_output_format = 0, sound = 0; CString wavepath; } AppConfig;
+#include "../Lite/PttWraps.h"
 class CTelnetConn
 {
 public:
+    PttFilter::Wraps filter_wraps;
     BYTE cur_attr = 7, attr_flags = 0;
     Sgr66::PendingAttribute sgr66_attribute;
     TerminalCells::EncodedTextDecoder utf8_decoder;
