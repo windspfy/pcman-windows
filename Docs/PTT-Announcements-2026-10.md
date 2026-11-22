@@ -1,5 +1,7 @@
 # 近期 PTT 公告與 PCMan LITE 相容性評估
 
+> 歷史評估。下列實作狀態與待辦按當時基準保留。CPR 已隨 PR #15 合併；目前狀態見[相容性清單](PTT-Compatibility-Checklist.md#目前進度與待辦)。
+
 評估日期：2026-10-17。範圍：使用者提供的六則公告；初評基準為本機 `master`（`c8404c6`），後續 OSC 8 與 C/C++ 最小轉碼已隨 PR #8 合併（`77f7cbf`）。
 初評讀取公告原文並檢查程式碼；同日後續已完成 OSC 接收修正與 OSC 8 目標功能，見 [OSC 實作與驗收](OSC-Validation.md)。
 SGR 66 匯出／貼上、Big5 雙色讀回及全域選單已隨 PR #9 合併（`0a8cfaa`），使用者已回報原功能測試正確，見 [SGR 66 實作與驗收](SGR66-Validation.md)。

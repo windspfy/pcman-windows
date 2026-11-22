@@ -1,5 +1,7 @@
 # UTF-8 畫面格模型與 CPR 前置評估
 
+> 歷史評估。下列實作狀態與待辦按當時基準保留。CPR 已隨 PR #15 合併；目前狀態見[相容性清單](PTT-Compatibility-Checklist.md#目前進度與待辦)。
+
 日期：2026-10-18。PCMan 基準：`master` `8590116`。
 狀態：第一階段 `5879222`、第二階段 B `ba0cc1f`、C `6458d7a` 已提交；本輪先補正式 parser 的未支援控制字串吸收，格模型仍未掛入正式 `OnText`／畫面或啟用 CPR。
 實作、固定政策與測試結果見 [第一階段驗收](Terminal-Cell-Model-Validation.md)。下列來源比對與後續整合需求保留。

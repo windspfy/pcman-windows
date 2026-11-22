@@ -1,96 +1,37 @@
-# CSI／OSC 解析測試
+# PCMan LITE 測試
 
-PTT 新介面（主選單、列表、空結果、看板資訊及自訂觸發器）的程式碼檢查與人工驗收，
-見 [新介面回歸驗證](../Docs/PTT-Interface-Regression.md)。此項不由工具自動登入操作。
+## 自動測試索引
 
-解析器補強 7-bit `ESC [`（CSI）解析，保留現有基本指令處理。
-DEC2026 現已加入專用同步處理，見 [同步更新驗收](../Docs/DEC2026-Validation.md)；
-SGR Mouse 仍忽略，CPR 仍由既有空函式處理，不回覆。
-2026-10-18 已完成含 UTF-8 的 CPR 前置[欄寬模型評估](../Docs/UTF8-Cell-Model-Plan.md)及第一階段純 C++ 格模型測試；尚未接入正式顯示或 CPR，既有位元組保留測試不等於 UTF-8 畫面格正確性驗收。
-2026-10-17 已加入 OSC 字串解析與 OSC 8 目標點擊，見 [OSC 實作與驗收](../Docs/OSC-Validation.md)。
-同日後續實作 SGR 66 彩圖匯出／貼上與 Big5 讀回，新增第六組測試及人工工具，見 [SGR 66 實作與驗收](../Docs/SGR66-Validation.md)。
-PowerShell 驗收工具另有 `powershell -NoProfile -File Tests/Test-Sgr66Fixture.ps1`：兩種 PowerShell 環境各通過 179 項檢查，包含真正的本機 TCP 與原腳本重試／略過流程，不執行 PCMan GUI。
-SGR 66 原功能 Debug／Release 主程式均完整重建成功；六組測試每組態通過 SGR 66 197,558、解析器 11,451、Keep-Alive 2,318、同步 100、文章 810、OSC 目標 1,343 項，使用者已回報原功能測試正確。
-彩色輸出模式現移至「選項 > 彩色內容輸出格式（全域）」，附「說明…」文字視窗；不再位於 ANSI 編輯選單。
-本次 SGR 66 測試增加 195 項真實 Windows 選單／說明檢查，合計每組態 197,753 項；
-請先建置同組態的 PCMan 主程式，再建置並執行 `Tests/Sgr66Tests.vcxproj` 的測試程式，因其會唯讀載入主程式的選單資源。
-既有項目順序及索引保持不變；新的 GUI 人工回歸步驟見上述 SGR 66 文件。
-2026-10-18 後續已補 DCS／SOS／PM／APC 的 7-bit 安全吸收，內容協定不實作；內嵌 CSI／OSC 不執行，ST 或取消才恢復解析。
-Debug／Release 主程式與十組測試完整重建通過；最新 parser **17,765**、邊界 **1,280**、SGR 66 **197,757**、文字 decoder **326,841** 項，其他組維持既有數量。
-另有 parser／邊界／文字 decoder 三組 ASAN 通過；界線及規則見 [控制字串驗證](../Docs/Control-String-Validation.md)。
-這不是完整的 ECMA-48 終端機實作，UTF-8 格模型仍未接入正式畫面，CPR 仍不回覆。
-不將 Big5／UAO／UTF-8 中的高位元組當成 8-bit C1 控制碼。
+由儲存庫根目錄執行。日常開發先跑對應功能，變更共用收字或畫面模型時再跑跨層測試。合併前可用 Win32 Debug、Release 做完整回歸。
 
-2026-10-17 六則公告的程式碼評估與待補驗收，見 [近期公告評估](../Docs/PTT-Announcements-2026-10.md)。
-OSC 8 的 payload 不流入文字；完整命令以有界 payload 傳給目標模組，標籤可點擊、右鍵複製網址並優先於文字自動辨識。
-SGR 66 已加入 Big5 匯出／貼上與雙色讀回（UTF-8 接收仍降級），人工驗收見專用文件；
-DECAWM 折行切換與 DECSTBM 捲動／Home／resize 已實作，新增第七組 `TerminalBoundaryTests`；
-Debug／Release 各通過邊界 256、解析器 11,759 項，其他五組維持上列通過數。
-本機腳本自動回歸 `powershell -NoProfile -File Tests/Test-TerminalBoundaryFixture.ps1` 通過 30 項；
-人工入口為 `powershell -NoProfile -File Tests/Start-TerminalBoundaryFixture.ps1`（新的 Big5 80×24 loopback 分頁）。
-2026-10-17 使用者確認本機人工流程已完成，實際站台測試也沒有問題；未另提供全部組態／站台／尺寸的逐項結果。
-E 測試須由「選項 → 修改目前連線的設定值 → 站台選項」修改列數，不是修改全域預設或拖曳視窗。
-完整重驗方式、驗收紀錄與限制見 [終端邊界驗收](../Docs/Terminal-Boundary-Validation.md)。
-2026-10-18 核對 PR #10（`238922f`）只包含三個正式程式檔；後續 `d317d6e` 已補齊測試、腳本及文件，`Sgr66Tests.cpp` 的接收替身亦已同步 `remote_line_wrap`。
-本輪從該提交的 `git archive` 建立乾淨來源副本，Debug／Release 主程式及七組測試均完整重建，全部通過上述數量；不依賴原工作目錄未提交檔案或舊 EXE。
-Windows PowerShell／PowerShell 7 各通過邊界 fixture 30、SGR 66 fixture 179 項檢查。主程式重建仍有警告；使用既有工具鏈及 vcpkg 套件，不是全新作業系統安裝驗證。
-使用者另提交的 `Start-TerminalBoundaryFixture2.ps1` 保留不動，正式腳本自動回歸仍使用 `Start-TerminalBoundaryFixture.ps1`；後續順序見[待辦清單](../Docs/PTT-Compatibility-Checklist.md#2026-10-18-合併核對與下一步)。
-N5 的解析／接收路徑已有自動測試；2026-10-17 使用者確認兩個 OSC 人工驗收腳本及流程皆正確，
-實際瀏覽 PTT 無特殊異常。本輪 OSC 人工驗收完成，其他 N1～N6 範圍仍依各項狀態記錄。
+| 測試專案（Tests 目錄） | 驗證範圍 |
+| --- | --- |
+| AnsiSequenceParserTests、OscHyperlinkTests | CSI／控制字串與分段解析；OSC 8 目標和列範圍 |
+| TerminalCellModelTests、EncodedTextDecoderTests | 字寬、原始列與儲存生命週期；串流解碼及跨封包邊界 |
+| WindowsTerminalRowTests | 使用正式 Windows 碼頁與 UAO 表驗證列投影 |
+| TerminalBoundaryTests、SynchronizedOutputTests | 正式收字與游標、折行、編碼切換；同步快照與可讀時機 |
+| Sgr66Tests、ArticleProgressTests | ANSI 色彩與選單資源；文章進度、跨頁與文字匯出 |
+| KeepAliveTests | Keep-Alive 協商、計時與設定相容性 |
 
-## UTF-8 畫面格模型測試（第一階段）
-
-新增獨立第八組 `TerminalCellModelTests`，直接使用正式新標頭，沒有 MFC／網路／剪貼簿依賴；尚未接入 PCMan 主程式。
-Debug／Release 各通過 2,286,759 項，另有 ASAN 建置執行通過；固定字寬、零寬／末欄政策與限制見 [格模型驗收](../Docs/Terminal-Cell-Model-Validation.md)。
-本輪既有七組測試亦在兩組態重新建置執行通過；沒有重編主程式或執行新 GUI／站台人工驗收。
+在 Visual Studio Developer PowerShell 建置同組態主程式後，再建置與執行對應測試。例如：
 
 ```powershell
-MSBuild Tests/TerminalCellModelTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
-./Tests/bin/Debug/TerminalCellModelTests.exe
-MSBuild Tests/TerminalCellModelTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
-./Tests/bin/Release/TerminalCellModelTests.exe
+MSBuild PCMan.sln /p:Configuration=Debug /p:Platform=Win32
+MSBuild Tests/TerminalBoundaryTests.vcxproj /p:Configuration=Debug /p:Platform=Win32
+./Tests/bin/Debug/TerminalBoundaryTests.exe
 ```
 
-### 第二階段 A：原始列與 Windows／UAO adapter
+`Sgr66Tests` 會讀取同組態 PCMan 的選單資源。`WindowsTerminalRowTests` 需要字碼表目錄參數，例如 `./Tests/bin/Debug/WindowsTerminalRowTests.exe Lite/Release/PCMan`。各模型的規格與歷史驗證見[格模型](../Docs/Terminal-Cell-Model-Validation.md)、[原始列](../Docs/Encoded-Row-Validation.md)、[列生命週期](../Docs/Encoded-Row-Lifecycle-Validation.md)及[串流解碼](../Docs/Encoded-Text-Decoder-Validation.md)。
 
-使用者確認保留全域編碼切換與既有歷史重新解讀，新增有界原始列保存及格投影，不以轉碼後文字覆蓋原始 bytes。
-第八組目前 Debug／Release／ASAN 各通過 **2,422,207** 項；新增第九組 `WindowsTerminalRowTests` 各通過 **131,339** 項。
-第九組直接編譯正式 `Lite/Ucs2Conv.cpp`，使用版控 B2U，檢查全部雙 byte 配對及單 byte 邊界，並有 GBK／Shift-JIS 與 PTT 探針案例。
-正式接收／畫面仍未接入，CPR 仍不回覆；不是編碼選單、scrollback、GUI 或站台的完整驗收。
-Interface、測試替身／正式 UAO 測試的差別及後續待辦見 [原始列保存驗證](../Docs/Encoded-Row-Validation.md)。
+| PowerShell 入口 | 用途與執行時機 |
+| --- | --- |
+| `Test-CprLoopback.ps1 -Configuration Debug`（或 Release） | 關閉 PCMan 後執行；啟動隔離的正式執行檔，驗證啟動選單、本機 TCP 的 CPR 回覆與跨分頁切換。 |
+| `Test-ColorClipboard.ps1` | 靜態檢查選單與剪貼簿呼叫是否接到指定方法。實際 Windows 剪貼簿互通另做人工驗收。 |
+| `Test-TerminalBoundaryFixture.ps1`、`Test-Sgr66Fixture.ps1` | 自動檢查本機測試站腳本的輸出與流程。 |
+| `Start-*.ps1`、`New-*VisualFixture.ps1` | 人工測試站或離線畫面產生器。邊界測試使用 `Start-TerminalBoundaryFixture.ps1`；第二個埠可指定 `-Port 22308`。 |
+| `Extract-*Methods.ps1`、`Sgr66FixtureHelpers.ps1` | 測試建置與腳本使用的輔助檔，無須個別執行。 |
 
-從倉庫根目錄執行（參數為版控 B2U 所在目錄，不讀寫個人 Config）：
-
-```powershell
-MSBuild Tests/WindowsTerminalRowTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
-./Tests/bin/Debug/WindowsTerminalRowTests.exe Lite/Release/PCMan
-MSBuild Tests/WindowsTerminalRowTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
-./Tests/bin/Release/WindowsTerminalRowTests.exe Lite/Release/PCMan
-```
-
-### 第二階段 B：原始列更新與儲存生命週期
-
-延續 A 的兩組測試與相同建置命令，新增來源列覆寫／清除／範圍複製／裁切、真實解碼分界及稀疏列儲存的配額／搬移／回收／快照保護。
-最新 Debug／Release／ASAN 第八組各 **2,551,208** 項，第九組各 **131,344** 項通過。
-第九組仍直接使用正式 UAO converter／B2U；第八組另有混合編輯／裁切及列儲存的固定種子序列測試。
-本輪未重跑舊七組、PowerShell fixture 或主程式建置，正式接收／畫面仍未掛接，CPR 未啟用；目前無新人工 GUI 項目。
-具體政策、測試界線及前輪漏交標頭提醒見 [生命週期驗證](../Docs/Encoded-Row-Lifecycle-Validation.md)。
-
-### 第二階段 C：接收串流解碼
-
-新增獨立第十組 `EncodedTextDecoderTests`，直接使用正式新 decoder、既有 ANSI parser／SGR66 helper，無 MFC／網路／剪貼簿依賴。
-最新 Debug／Release／ASAN：第八組 **2,551,215**、第九組 **131,351**、第十組 **325,461** 項均通過。
-涵蓋跨封包、原始來源／style、舊編碼前綴完成、重新選取同編碼、reset、adapter 錯誤回復與所有雙 byte 輸入；第九組另用真正 UAO／Shift-JIS adapter 驗證。
-離線 fixture 只串接共用 parser 與新文字 decoder，不是正式 `OnText` 呼叫鏈、CPR、GUI 或記憶體不足斷線驗收。
-正式接收／繪圖仍未切換，沒有新人工測試；使用者已確認超額停止連線並保留畫面的策略，尚待正式失敗路徑實作。
-詳見 [接收層驗證](../Docs/Encoded-Text-Decoder-Validation.md)。
-
-```powershell
-MSBuild Tests/EncodedTextDecoderTests.vcxproj /t:Rebuild /p:Configuration=Debug /p:Platform=Win32
-./Tests/bin/Debug/EncodedTextDecoderTests.exe
-MSBuild Tests/EncodedTextDecoderTests.vcxproj /t:Rebuild /p:Configuration=Release /p:Platform=Win32
-./Tests/bin/Release/EncodedTextDecoderTests.exe
-```
+PR #15 已啟用普通 CSI 6n 回覆，實站及本機測試範圍見[目前進度與待辦](../Docs/PTT-Compatibility-Checklist.md#目前進度與待辦)。SGR Mouse 仍暫緩。人工回歸入口見[終端邊界](../Docs/Terminal-Boundary-Validation.md)、[SGR 66](../Docs/SGR66-Validation.md)、[OSC 8](../Docs/OSC-Validation.md)、[DEC2026](../Docs/DEC2026-Validation.md)及[PTT 新介面](../Docs/PTT-Interface-Regression.md)。
 
 ## 自動測試
 

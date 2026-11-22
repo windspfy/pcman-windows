@@ -79,6 +79,6 @@ Debug／Release Win32 完整重建，及 Release ASAN 同套測試均通過：
 實際 UAO 測試使用正式 converter／B2U，新增雙半格屬性、範圍複製、半字覆寫、裁切及分界；沒有用測試替身替代 UAO。
 大量檢查不是同等數量的獨立使用者情境，也不是無上限 fuzz 或正式 MFC 呼叫鏈的證明。
 
-沿用 [第八／九組建置命令](../Tests/README.md#第二階段-b原始列更新與儲存生命週期)。ASAN 僅調整該程序 runtime PATH，未更改系統設定。
+沿用 [測試建置與參數](../Tests/README.md#自動測試索引)。ASAN 僅調整該程序 runtime PATH，未更改系統設定。
 本輪沒有修改或重建主程式、重跑舊七組測試／PowerShell fixture、啟動 GUI、操作剪貼簿或登入站台。
 目前無新人工畫面可測；下一步仍是第二階段正式接收、繪圖與各讀取／匯出端的一致接入，再進行第三階段 CPR。
