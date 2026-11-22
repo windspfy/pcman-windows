@@ -2,19 +2,27 @@ param([Parameter(Mandatory=$true)][string]$OutputPath)
 $ErrorActionPreference = 'Stop'
 $parts = @()
 $selections = @{
+    'Lite/TermView.cpp' = @('void CTermView::DrawUtf8Line(')
     'Lite/TelnetConn.cpp' = @(
-        'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
+        'void CTelnetConn::StopForSourceLimit(',
+        'BOOL CTelnetConn::IsEmptyLine(', 'inline void CTelnetConn::EditorLineFeed(',
+        'inline void CTelnetConn::EditorCarriageRetiurn(', 'inline void CTelnetConn::EditorLineBack(',
+        'void CTelnetConn::End(', 'void CTelnetConn::Back(',
+        'bool CTelnetConn::HasUtf8Blink(',
+        'static CString WrapPasteText(',
+        'void CTelnetConn::WriteReceivedGlyph(', 'void CTelnetConn::FinishBig5Text(', 'TerminalCells::EncodedRow CTelnetConn::ReadUtf8Source(', 'void CTelnetConn::MirrorUtf8Row(', 'void CTelnetConn::WriteUtf8Glyph(', 'void CTelnetConn::FinishReceivedText(', 'void CTelnetConn::OnText(', 'inline void CTelnetConn::ProcessAnsiEscapeSequence(',
         'inline void CTelnetConn::SetCurrentAttributes(', 'void CTelnetConn::GotoXY(',
         'void CTelnetConn::SetScrollRange(', 'void CTelnetConn::LineFeed()', 'void CTelnetConn::GoRight(',
-        'char* CTelnetConn::ResizeLine(', 'void CTelnetConn::ReSizeBuffer(',
-        'void CTelnetConn::CreateBuffer(', 'ArticleProgress::Progress CTelnetConn::GetArticleProgress(')
+        'void CTelnetConn::ShiftUtf8Cells(', 'void CTelnetConn::InsertChar(', 'void CTelnetConn::DeleteChar(', 'void CTelnetConn::Delete(',
+        'void CTelnetConn::ClearCurrentLine(', 'char* CTelnetConn::ResizeLine(', 'void CTelnetConn::ReSizeBuffer(',
+        'void CTelnetConn::DeviceStatusReport(', 'void CTelnetConn::CreateBuffer(', 'ArticleProgress::Progress CTelnetConn::GetArticleProgress(')
     'Lite/TelnetConn.h' = @(
         'inline LPBYTE CTelnetConn::GetLineAttr(const char *line)',
         'inline LPBYTE CTelnetConn::GetLineAttr(const int line)',
         'inline void CTelnetConn::InitNewLine(', 'inline char* CTelnetConn::AllocNewLine(',
         'inline int CTelnetConn::GetLineBufLen()', 'inline int CTelnetConn::GetLineBufLen(int ')
 }
-foreach ($file in @('Lite/TelnetConn.cpp', 'Lite/TelnetConn.h')) {
+foreach ($file in @('Lite/TelnetConn.cpp', 'Lite/TelnetConn.h', 'Lite/TermView.cpp')) {
     $source = [Text.UTF8Encoding]::new($false, $true).GetString(
         [IO.File]::ReadAllBytes((Join-Path $PSScriptRoot "../$file")))
     foreach ($signature in $selections[$file]) {

@@ -275,7 +275,6 @@ protected:
 	WNDPROC old_address_bar_proc;
 
 private:
-	bool setCharset;
 	CScaler scaler;
 };
 

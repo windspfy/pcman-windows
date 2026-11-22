@@ -6,7 +6,7 @@ function Assert-Check([bool]$Condition, [string]$Why) {
     if (-not $Condition) { throw "FAIL: $Why" }
 }
 $fixture = Join-Path $PSScriptRoot 'Start-TerminalBoundaryFixture.ps1'
-foreach ($mode in @('skip-resize', 'resize', 'quit')) {
+foreach ($mode in @('skip-resize', 'resize', 'quit', 'big5-edge')) {
     $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
     $reservation.Start()
     $port = $reservation.LocalEndpoint.Port
@@ -22,7 +22,7 @@ foreach ($mode in @('skip-resize', 'resize', 'quit')) {
                 if ($Mode -eq 'resize' -and $Prompt.StartsWith('Enter new height')) { return '32' }
                 return ''
             }
-            & $FixturePath -Port $FixturePort -Width 80 -Rows 24
+            & $FixturePath -Port $FixturePort -Width 80 -Rows 24 -Big5EdgeOnly:($Mode -eq 'big5-edge')
         }).AddArgument($fixture).AddArgument($port).AddArgument($mode)
         $running = $runner.BeginInvoke()
         $deadline = [DateTime]::UtcNow.AddSeconds(12)
@@ -45,10 +45,14 @@ foreach ($mode in @('skip-resize', 'resize', 'quit')) {
         $bytes = [Text.Encoding]::ASCII.GetString($capture.ToArray())
         $esc = [string][char]27
         Assert-Check ($bytes.Contains("${esc}[?7l")) 'OFF command is actually sent'
-        Assert-Check ($bytes.Contains('ABCDEFG')) 'right-edge OFF sample is complete'
+        if ($mode -ne 'big5-edge') { Assert-Check ($bytes.Contains('ABCDEFG')) 'right-edge OFF sample is complete' }
         Assert-Check (-not $output.Contains('ABCDEFG')) 'terminal payload is not printed to console'
         Assert-Check (-not $output.Contains('PASS:')) 'script does not claim automatic GUI acceptance'
-        if ($mode -ne 'quit') {
+        if ($mode -eq 'big5-edge') {
+            $wire = [BitConverter]::ToString($capture.ToArray())
+            Assert-Check ($wire.Contains('1B-5B-33-3B-38-30-48-1B-5B-3F-37-68-A4-A4-58')) 'wrap at column 80 with Big5 pair then X'
+            Assert-Check ($wire.Contains('1B-5B-36-3B-38-30-48-1B-5B-3F-37-6C-A4-A4-21')) 'no wrap at column 80 with Big5 pair then !'
+        } elseif ($mode -ne 'quit') {
             Assert-Check ($bytes.Contains("${esc}[?7hABCD${esc}[31mEFG")) 'ON and color sample sent in order'
             Assert-Check ($bytes.Contains("${esc}[2;22rHOME")) 'DECSTBM sample has no extra CUP before HOME'
             Assert-Check ($bytes.Contains("${esc}[24;20H`nOUTSIDE")) 'below-region LF sample is sent'

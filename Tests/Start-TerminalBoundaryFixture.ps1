@@ -2,7 +2,8 @@
 param(
     [ValidateRange(1024,65535)][int]$Port = 22307,
     [ValidateSet(40,80,120,160)][int]$Width = 80,
-    [ValidateSet(24,32,48,64)][int]$Rows = 24
+    [ValidateSet(24,32,48,64)][int]$Rows = 24,
+    [switch]$Big5EdgeOnly
 )
 $ErrorActionPreference = 'Stop'
 $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $Port)
@@ -39,6 +40,15 @@ try {
     $client = $listener.AcceptTcpClient()
     $client.NoDelay = $true
     $script:stream = $client.GetStream()
+    if ($Big5EdgeOnly) {
+        Send-Display "${esc}[2J${esc}[HBig5 right margin"
+        Move-To 3 $Width
+        Send-Display "${esc}[?7h$([char]0x4e2d)X" $true
+        Move-To 6 $Width
+        Send-Display "${esc}[?7l$([char]0x4e2d)!" $true
+        [void](Confirm-Step 'Row 3 ends blank; row 4 starts with the Chinese character then X. Row 6 ends in ! and row 7 stays blank?')
+        return
+    }
     Send-Display "${esc}[?7l${esc}[r${esc}[2J${esc}[HDECAWM OFF - expect ABCG at right edge"
     Move-To 4; Send-Display 'NEXT ROW MUST STAY UNCHANGED'
     Move-To 3 ($Width - 3); Send-Display 'ABCDEFG' $true

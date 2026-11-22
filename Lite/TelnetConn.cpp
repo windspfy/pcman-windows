@@ -12,6 +12,8 @@
 #include "StrUtils.h"
 #include "WinUtils.h"
 #include "Clipboard.h"
+#include "WindowsTerminalRowDecoder.h"
+extern CUcs2Conv g_ucs2conv;
 #include "Websocket.h"
 
 #include <mmsystem.h>
@@ -217,6 +219,7 @@ int CTelnetConn::Shutdown()
 
 void CTelnetConn::HandleConnEvent(std::unique_ptr<CConnEvent> event)
 {
+	if (source_limit_stopped) return;
 	switch (event->event_type) {
 	case CConnEvent::EVENT_CONNECT:
 		OnConnect(true);
@@ -249,6 +252,7 @@ void CTelnetConn::OnSocket(WPARAM wparam, LPARAM lparam)
 
 void CTelnetConn::OnReceive(int len)
 {
+	if (source_limit_stopped) return;
 	if (view->telnet != this)
 	{
 		int idx = view->parent->ConnToIndex(this);
@@ -391,10 +395,280 @@ void CDownloadArticleDlg::PostNcDestroy()
 	}
 }
 
-void CTelnetConn::OnText()
+void CTelnetConn::StopForSourceLimit()
 {
+	if (source_limit_stopped) return;
+	source_limit_stopped = true;
+	is_connected = false;
+	is_disconnected = true;
+	Close();
+	view->Invalidate(FALSE);
+	view->parent->UpdateStatus();
+}
+
+void CTelnetConn::WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks::Target& link, bool pair)
+{
+	if (source_limit_stopped) return;
+	if (cursor_pos.y > last_line || cursor_pos.y < first_line) return;
+	const int cols = site_settings.cols_per_page;
+	const int width = pair ? 2 : 1;
+	auto margin = TerminalCells::RightMargin::Clip;
+	if (!is_ansi_editor)
+	{
+		if (remote_line_wrap == 0) margin = TerminalCells::RightMargin::Overwrite;
+		else if (remote_line_wrap > 0 || site_settings.line_wrap) margin = TerminalCells::RightMargin::Wrap;
+	}
+	const auto placement = TerminalCells::PlaceGlyph(cols, cursor_pos.x, width, margin);
+	if (placement.column < 0) return;
+	if (placement.clearEdge)
+	{
+		char* edge = screen[cursor_pos.y];
+		int column = 0;
+		while (column < cols - 1)
+		{
+			const BYTE next = static_cast<BYTE>(edge[column + 1]);
+			const bool wide = CUcs2Conv::IsBig5Pair(static_cast<BYTE>(edge[column]), next);
+			if (wide && column + 1 == cols - 1) break;
+			column += wide ? 2 : 1;
+		}
+		if (!encoded_rows.At(edge).Bytes().empty())
+		{
+			const TerminalCells::EncodedRow::Byte blanks[2] = {{' ', {attr, 0}}, {' ', {attr, 0}}};
+			if (!encoded_rows.TryEdit(edge, [&](const TerminalCells::EncodedRow& source) {
+				return source.WriteByteCells(column, blanks, cols - column, true);
+			})) return StopForSourceLimit();
+		}
+		memset(edge + column, ' ', cols - column);
+		memset(GetLineAttr(edge) + column, attr, cols - column);
+		osc_links.Erase(edge, column, cols - column);
+		SetUpdateWholeLine(cursor_pos.y);
+	}
+	if (placement.lineFeed) LineFeed();
+	LPSTR curstr = screen[cursor_pos.y];
+	LPBYTE pcuratb = GetLineAttr(curstr);
+	const int column = placement.column;
+	if (!is_ansi_editor && !encoded_rows.At(curstr).Bytes().empty())
+	{
+		const TerminalCells::EncodedRow::Byte cells[2] = {
+			{pair ? pending_big5 : value, {pair ? pending_big5_attr : attr, 0}},
+			{value, {attr, 0}}
+		};
+		if (!encoded_rows.TryEdit(curstr, [&](const TerminalCells::EncodedRow& source) {
+			return source.WriteByteCells(column, cells, width, legacy_run_start || placement.lineFeed);
+		})) return StopForSourceLimit();
+	}
+	if (is_ansi_editor && insert_mode)
+	{
+		osc_links.Copy(curstr, column + 1, curstr, column,
+			site_settings.cols_per_page - column - 1, site_settings.cols_per_page);
+		for (int i = site_settings.cols_per_page - 1; i > column; i--)
+		{
+			curstr[i] = curstr[i-1];
+			pcuratb[i] = pcuratb[i-1];
+		}
+		SetUpdateWholeLine(cursor_pos.y);
+	}
+	for (int i = 0; i < width; ++i)
+	{
+		const bool lead = pair && i == 0;
+		const BYTE byte = lead ? pending_big5 : value;
+		const BYTE color = lead ? pending_big5_attr : attr;
+		const int x = column + i;
+		const bool changedLink = osc_links.Write(curstr, x, cols, lead ? pending_big5_link : link);
+		if (static_cast<BYTE>(curstr[x]) != byte || pcuratb[x] != color || changedLink)
+			SetUpdateLine(cursor_pos.y, static_cast<BYTE>(x));
+		pcuratb[x] = color;
+		curstr[x] = byte;
+	}
+	cursor_pos.x = placement.nextColumn;
+	legacy_run_start = false;
+}
+
+void CTelnetConn::FinishBig5Text()
+{
+	if (!pending_big5) return;
+	WriteReceivedGlyph(pending_big5, pending_big5_attr, pending_big5_link, false);
+	pending_big5 = 0;
+	pending_big5_link.reset();
+}
+
+TerminalCells::EncodedRow CTelnetConn::ReadUtf8Source(const char* row)
+{
+	if (sync_output.Active())
+		if (const auto* snapshot = sync_output.EncodedSource(row)) return *snapshot;
+	const auto& stored = encoded_rows.At(row);
+	if (!stored.Bytes().empty()) return stored;
+	const BYTE* attrs = GetLineAttr(row);
+	int length = site_settings.cols_per_page;
+	while (length && row[length-1] == ' ' && attrs[length-1] == 7) --length;
+	std::vector<TerminalCells::EncodedRow::Byte> bytes;
+	bytes.reserve(length);
+	for (int i = 0; i < length; ++i)
+		bytes.push_back({static_cast<BYTE>(row[i]), {attrs[i], 0}});
+	return TerminalCells::EncodedRow(std::move(bytes));
+}
+
+bool CTelnetConn::HasUtf8Blink(const char* row)
+{
+	const auto& bytes = encoded_rows.At(row).Bytes();
+	if (!bytes.empty())
+		return std::any_of(bytes.begin(), bytes.end(), [](const auto& b) { return IsAttrBlink(b.style.attribute); });
+	const BYTE* attrs = GetLineAttr(row);
+	return std::any_of(attrs, attrs + site_settings.cols_per_page, [](BYTE attr) { return IsAttrBlink(attr); });
+}
+
+void CTelnetConn::MirrorUtf8Row(char* row)
+{
+	const int cols = site_settings.cols_per_page;
+	const auto& bytes = encoded_rows.At(row).Bytes();
+	BYTE* attrs = GetLineAttr(row);
+	for (int i = 0; i < cols; ++i)
+	{
+		const bool present = static_cast<size_t>(i) < bytes.size();
+		row[i] = present ? bytes[i].value : ' ';
+		attrs[i] = present ? bytes[i].style.attribute : 7;
+	}
+}
+
+void CTelnetConn::WriteUtf8Glyph(const TerminalCells::EncodedTextDecoder::Glyph& first,
+	const OscHyperlinks::Target& firstLink, const TerminalCells::EncodedTextDecoder::Glyph* nextGlyph)
+{
+	if (source_limit_stopped) return;
+	const int cols = site_settings.cols_per_page;
+	const bool full = scr_top == 0 && scr_bottom == site_settings.lines_per_page - 1;
+	const int top = full ? 0 : first_line + scr_top, bottom = first_line + scr_bottom;
+	auto margin = TerminalCells::RightMargin::Clip;
+	if (!is_ansi_editor)
+	{
+		if (remote_line_wrap == 0) margin = TerminalCells::RightMargin::Overwrite;
+		else if (remote_line_wrap > 0 || site_settings.line_wrap) margin = TerminalCells::RightMargin::Wrap;
+	}
+	struct Update {
+		TerminalCells::GlyphPlacement placement;
+		char* edge = nullptr;
+		char* row = nullptr;
+		int shifted = 0;
+		OscHyperlinks::Target link;
+	};
+	Update updates[2];
+	const int count = nextGlyph ? 2 : 1;
+	auto pos = cursor_pos;
+	int rotations = 0;
+	std::map<const void*, TerminalCells::EncodedRow> staged;
+	auto physical = [&](int y) {
+		if (y >= top && y <= bottom) y = top + (y - top + rotations) % (bottom - top + 1);
+		return screen[y];
+	};
+	auto source = [&](char* row) -> TerminalCells::EncodedRow& {
+		auto [it, inserted] = staged.try_emplace(row);
+		if (inserted) it->second = ReadUtf8Source(row);
+		return it->second;
+	};
+	try
+	{
+		for (int i = 0; i < count; ++i)
+		{
+			const auto& glyph = i ? *nextGlyph : first;
+			auto& update = updates[i];
+			char* row = physical(pos.y);
+			if (!glyph.width)
+			{
+				if (glyph.scalar < 0xa0 || glyph.source.Bytes().front().boundaryBefore || pos.x <= 0) continue;
+				auto& old = source(row);
+				const auto projection = old.ReadUtf8(cols);
+				int lead = (std::min)(static_cast<int>(pos.x), cols) - 1;
+				if (projection.At(lead).continuation) --lead;
+				if (projection.Source(lead).begin == projection.Source(lead).end) continue;
+				old = old.AppendUtf8Marks(cols, lead, glyph.source);
+				update.row = row;
+				continue;
+			}
+			auto& placement = update.placement;
+			placement = TerminalCells::PlaceGlyph(cols, pos.x, glyph.width, margin);
+			if (placement.column < 0) continue;
+			if (placement.clearEdge)
+			{
+				auto& edge = source(row);
+				edge = edge.ReplaceUtf8(cols, cols - 1, cols, {});
+				update.edge = row;
+			}
+			if (placement.lineFeed)
+			{
+				if (pos.y == bottom)
+				{
+					++rotations;
+					staged.insert_or_assign(physical(bottom), TerminalCells::EncodedRow());
+				}
+				else if (pos.y < last_line) ++pos.y;
+				row = physical(pos.y);
+			}
+			auto& old = source(row);
+			if (is_ansi_editor && insert_mode)
+			{
+				const auto before = old.ReadUtf8(cols);
+				const auto range = before.Source(placement.column);
+				if (range.begin != range.end)
+				{
+					old = TerminalCells::EncodedRow::Shift(before, placement.column, glyph.width, true);
+					update.shifted = glyph.width;
+				}
+			}
+			old = old.WriteUtf8Glyph(cols, placement.column, glyph.source, !placement.lineFeed);
+			update.row = row;
+			update.link = i ? osc_links.ActiveTarget() : firstLink;
+			pos.x = placement.nextColumn;
+		}
+		if (!encoded_rows.CommitRows(staged, [&] {
+			for (int i = 0; i < count; ++i)
+			{
+				const auto& update = updates[i];
+				if (update.edge)
+				{
+					osc_links.Erase(update.edge, cols - 1, 1);
+					SetUpdateWholeLine(cursor_pos.y);
+				}
+				if (update.placement.lineFeed) LineFeed();
+				SetUpdateWholeLine(cursor_pos.y);
+			}
+		})) return StopForSourceLimit();
+	}
+	catch (const std::bad_alloc&) { return StopForSourceLimit(); }
+	catch (const std::length_error&) { return StopForSourceLimit(); }
+	for (int i = 0; i < count; ++i)
+	{
+		const auto& update = updates[i];
+		if (update.edge) MirrorUtf8Row(update.edge);
+		if (!update.row) continue;
+		MirrorUtf8Row(update.row);
+		if (update.shifted)
+		{
+			const int start = update.placement.column;
+			osc_links.Copy(update.row, start + update.shifted, update.row, start, cols - start - update.shifted, cols);
+		}
+		if (update.placement.column >= 0)
+			for (int x = update.placement.column; x < update.placement.nextColumn; ++x)
+				osc_links.Write(update.row, x, cols, update.link);
+	}
+	cursor_pos = pos;
+}
+
+void CTelnetConn::FinishReceivedText()
+{
+	if (source_limit_stopped) return;
+	FinishBig5Text();
+	for (const auto& glyph : utf8_decoder.FinishText())
+		WriteUtf8Glyph(glyph, utf8_prefix_link);
+	utf8_prefix_link.reset();
+	legacy_run_start = true;
+}
+
+void CTelnetConn::OnText(bool fromNetwork)
+{
+	if (source_limit_stopped) return;
 	CheckSynchronizedOutputTimeout();
-	while (buf < last_byte)
+	auto& parser = fromNetwork ? ansi_parser : local_parser;
+	if (pending_big5 && view->GetCodePage() != 950) FinishReceivedText();
+	while (buf < last_byte && !source_limit_stopped)
 	{
 		if (*buf == IAC)
 		{
@@ -402,16 +676,18 @@ void CTelnetConn::OnText()
 			break;
 		}
 
-		const AnsiSequenceParser::Result parsed = ansi_parser.Feed(*buf);
+		const AnsiSequenceParser::Result parsed = parser.Feed(*buf);
 		if (*buf == 0x18 || *buf == 0x1a) sgr66_attribute.Reset();
 		if (parsed == AnsiSequenceParser::Osc)
-			osc_links.Command(ansi_parser.OscSequence(), ansi_parser.OscValid());
+			osc_links.Command(parser.OscSequence(), parser.OscValid());
 		else if (parsed == AnsiSequenceParser::SyncBegin)
 			BeginSynchronizedOutput();
 		else if (parsed == AnsiSequenceParser::SyncEnd)
 			EndSynchronizedOutput();
 		else if (parsed == AnsiSequenceParser::AutoWrapOn || parsed == AnsiSequenceParser::AutoWrapOff)
 		{
+			FinishReceivedText();
+			if (source_limit_stopped) return;
 			sgr66_attribute.Reset();
 			if (!is_ansi_editor)
 			{
@@ -422,8 +698,11 @@ void CTelnetConn::OnText()
 		}
 		else if (parsed == AnsiSequenceParser::Dispatch)
 		{
-			if (ansi_parser.Sequence()[ansi_parser.Length() - 1] != 'm')
+			const char command = parser.Sequence()[parser.Length() - 1];
+			if (command != 'm' && command != 'n')
 			{
+				FinishReceivedText();
+				if (source_limit_stopped) return;
 				sgr66_attribute.Reset();
 				// The one-past-right position denotes a delayed wrap. Cursor/control
 				// operations address the last cell instead; SGR keeps wrap pending.
@@ -432,15 +711,16 @@ void CTelnetConn::OnText()
 			}
 			// The parser only dispatches complete, bounded, plain numeric CSI
 			// or single-character ESC commands understood by the legacy handler.
-			memcpy(ansi_param, ansi_parser.Sequence(), ansi_parser.Length() + 1);
-			pansi_param = ansi_param + ansi_parser.Length();
-			ProcessAnsiEscapeSequence();
+			memcpy(ansi_param, parser.Sequence(), parser.Length() + 1);
+			pansi_param = ansi_param + parser.Length();
+			if (command != 'n' || fromNetwork) ProcessAnsiEscapeSequence();
 			*ansi_param = 0;
 			pansi_param = ansi_param;
 		}
 		else if (parsed == AnsiSequenceParser::Text)
 		{
-			if (*buf < ' ') sgr66_attribute.Reset();
+			if (*buf < ' ') { FinishReceivedText(); sgr66_attribute.Reset(); }
+			if (source_limit_stopped) return;
 			switch (*buf)
 			{
 			case 13:	//Carrige Return
@@ -509,58 +789,45 @@ void CTelnetConn::OnText()
 				if (cursor_pos.y > last_line || cursor_pos.y < first_line)
 					break;
 
-				if (!is_ansi_editor && *buf >= ' ' && cursor_pos.x >= site_settings.cols_per_page)
+				if (*buf < ' ') break;
+				const BYTE byte = *buf;
+				if (view->GetCodePage() == CP_UTF8)
 				{
-					if (remote_line_wrap < 0 ? site_settings.line_wrap != 0 : remote_line_wrap != 0)
-					{
-						cursor_pos.x = 0;
-						LineFeed();
-					}
-					else if (remote_line_wrap == 0)
-						cursor_pos.x = site_settings.cols_per_page - 1;
+					const bool hadPrefix = utf8_decoder.Pending();
+					bool emitted = false;
+					const bool accepted = utf8_decoder.TryFeed(byte, {text_attr, 0}, [&](const auto& batch) {
+						emitted = true;
+						WriteUtf8Glyph(batch.glyphs[0], hadPrefix ? utf8_prefix_link : osc_links.ActiveTarget(),
+							batch.count == 2 ? &batch.glyphs[1] : nullptr);
+						return !source_limit_stopped;
+					});
+					if (!accepted) return;
+					if (utf8_decoder.Pending() && (!hadPrefix || emitted)) utf8_prefix_link = osc_links.ActiveTarget();
+					else if (!utf8_decoder.Pending()) utf8_prefix_link.reset();
+					break;
 				}
-
-				// FIXME: The cursor_pos.x will be incorrent when buffer is UTF8.
-				if (cursor_pos.x < site_settings.cols_per_page)
+				if (CUcs2Conv::IsBig5Pair(pending_big5, byte))
 				{
-					LPSTR curstr = screen[cursor_pos.y];
-					LPBYTE pcuratb = GetLineAttr(curstr);
-
-					if (*buf >= ' ')
-					{
-						if (is_ansi_editor && insert_mode)
-						{
-							osc_links.Copy(curstr, cursor_pos.x + 1, curstr, cursor_pos.x,
-								site_settings.cols_per_page - cursor_pos.x - 1, site_settings.cols_per_page);
-							for (int i = site_settings.cols_per_page - 1;i > cursor_pos.x;i--)
-							{
-								curstr[i] = curstr[i-1];
-								pcuratb[i] = pcuratb[i-1];
-							}
-							SetUpdateWholeLine(cursor_pos.y);
-						}
-						else
-						{
-							// reduce unnecessary update.  does this work?
-							if (curstr[cursor_pos.x] != *buf || pcuratb[cursor_pos.x] != text_attr ||
-								osc_links.At(curstr, cursor_pos.x))
-								SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);	//將這行設為等待更新
-						}
-
-						if (osc_links.Write(curstr, cursor_pos.x, site_settings.cols_per_page))
-							SetUpdateLine(cursor_pos.y, (BYTE)cursor_pos.x);
-						pcuratb[cursor_pos.x] = text_attr;
-						curstr[cursor_pos.x] = *buf;
-
-						cursor_pos.x++;
-					}
+					WriteReceivedGlyph(byte, text_attr, osc_links.ActiveTarget(), true);
+					pending_big5 = 0;
+					pending_big5_link.reset();
+					break;
 				}
+				FinishBig5Text();
+				if (!is_ansi_editor && view->GetCodePage() == 950 && Sgr66::Lead(byte))
+				{
+					pending_big5 = byte;
+					pending_big5_attr = text_attr;
+					pending_big5_link = osc_links.ActiveTarget();
+				}
+				else WriteReceivedGlyph(byte, text_attr, osc_links.ActiveTarget(), false);
 			}
 			}
 		}
 		buf++;
 	}
 	// Triggers retain their raw receive-data semantics; do not replay buffers.
+	if (source_limit_stopped) return;
 	CheckStrTrigger();
 	if (sync_output.Active()) return;
 	UpdateCursorPos();
@@ -614,7 +881,7 @@ void CTelnetConn::BeginSynchronizedOutput()
 	if (is_ansi_editor || sync_output.Active()) return;
 	CheckHyperLinks();
 	if (sync_output.Begin(GetTickCount64(), screen + scroll_pos,
-		site_settings.lines_per_page, GetLineBufLen()))
+		site_settings.lines_per_page, GetLineBufLen(), &encoded_rows))
 	{
 		sync_scroll_pos = scroll_pos;
 		osc_snapshot.Reset();
@@ -643,12 +910,16 @@ void CTelnetConn::EndSynchronizedOutput()
 
 void CTelnetConn::CheckSynchronizedOutputTimeout()
 {
+	if (source_limit_stopped) return;
 	if (sync_output.Expire(GetTickCount64()))
 		RefreshSynchronizedOutput(); // Display only; never advance copying.
 }
 
 void CTelnetConn::OnClose()
 {
+	if (source_limit_stopped) return;
+	FinishReceivedText();
+	if (source_limit_stopped) return;
 	ansi_parser.Reset();
 	*ansi_param = 0;
 	pansi_param = ansi_param;
@@ -698,6 +969,11 @@ void CTelnetConn::UpdateLine(int line)
 	LPBYTE attrib = GetLineAttr(line);
 	rc.left = view->left_margin + (*(attrib - 2) - 1) * view->chw;
 	rc.right = view->left_margin + (*(attrib - 3) + 1) * view->chw;
+	if (view->GetCodePage() == CP_UTF8)
+	{
+		rc.left = view->left_margin;
+		rc.right = rc.left + site_settings.cols_per_page * view->chw;
+	}
 	rc.bottom = rc.top + view->lineh;
 	::InvalidateRect(view->m_hWnd, rc, FALSE);
 	rc.top = rc.bottom - 1;
@@ -708,31 +984,34 @@ void CTelnetConn::UpdateLine(int line)
 
 void CTelnetConn::ClearCurrentLine(int param)
 {
-	if (cursor_pos.x > site_settings.cols_per_page)
-		cursor_pos.x = site_settings.cols_per_page;
-	if (cursor_pos.x < 0)
-		cursor_pos.x = 0;
-
-	CRect rc;
-	switch (param)
+	const int cols = site_settings.cols_per_page;
+	const int x = static_cast<int>((std::clamp)(cursor_pos.x, 0L, static_cast<long>(cols)));
+	char* row = screen[cursor_pos.y];
+	if (param < 0 || param > 2) return;
+	const int begin = param == 0 ? x : 0;
+	const int end = param == 1 ? (std::min)(cols, x + 1) : cols;
+	int linkBegin = begin, linkEnd = end;
+	const bool mirror = !encoded_rows.At(row).Bytes().empty();
+	if (begin == 0 && end == cols) encoded_rows.Erase(row);
+	else if (!encoded_rows.At(row).Bytes().empty())
 	{
-	default:
-	case 0:
-		osc_links.Erase(screen[cursor_pos.y], cursor_pos.x, site_settings.cols_per_page - cursor_pos.x);
-		memset((screen[cursor_pos.y] + cursor_pos.x), ' ', site_settings.cols_per_page - cursor_pos.x);
-		memset((GetLineAttr(cursor_pos.y) + cursor_pos.x), 7, site_settings.cols_per_page - cursor_pos.x);
-		break;
-	case 1:
-		osc_links.Erase(screen[cursor_pos.y], 0, cursor_pos.x);
-		memset(screen[cursor_pos.y], ' ', cursor_pos.x);
-		memset(GetLineAttr(cursor_pos.y), 7, cursor_pos.x);
-		break;
-	case 2:
-		osc_links.Clear(screen[cursor_pos.y]);
-		memset(screen[cursor_pos.y], ' ', site_settings.cols_per_page);
-		screen[cursor_pos.y][site_settings.cols_per_page] = 0;
-		memset(GetLineAttr(cursor_pos.y), 7, site_settings.cols_per_page);
+		if (begin != end && !encoded_rows.TryEdit(row, [&](const TerminalCells::EncodedRow& old) {
+			if (view->GetCodePage() == CP_UTF8)
+			{
+				const auto before = old.ReadUtf8(cols);
+				if (before.At(begin).continuation) --linkBegin;
+				if (end < cols && before.At(end).continuation) ++linkEnd;
+				return old.ReplaceUtf8(cols, begin, end, {});
+			}
+			return old.ReplaceLegacy(cols, begin, end, {}, TerminalCells::WindowsRowDecoder(view->GetCodePage(), g_ucs2conv));
+		})) return StopForSourceLimit();
 	}
+	cursor_pos.x = x;
+	osc_links.Erase(row, linkBegin, linkEnd - linkBegin);
+	memset(row + begin, ' ', end - begin);
+	memset(GetLineAttr(cursor_pos.y) + begin, 7, end - begin);
+	if (mirror) MirrorUtf8Row(row);
+	if (param == 2) row[cols] = 0;
 	SetUpdateWholeLine(cursor_pos.y);
 }
 
@@ -1122,7 +1401,7 @@ void CTelnetConn::CreateBuffer()
 inline void CTelnetConn::ProcessData(int len)
 {
 	last_byte = buffer + len;
-	for (buf = buffer; buf < last_byte ; buf++)
+	for (buf = buffer; buf < last_byte && !source_limit_stopped; buf++)
 	{
 		if (*((BYTE*)ansi_param) == IAC)
 		{
@@ -1156,7 +1435,7 @@ inline void CTelnetConn::ProcessData(int len)
 			}
 		}
 		else
-			OnText();
+			OnText(true);
 	}
 }
 
@@ -1165,6 +1444,50 @@ void CTelnetConn::LocalEcho(void* str, int len)
 	buf = (LPBYTE)str;
 	last_byte = (LPBYTE)buf + len;
 	OnText();
+}
+
+static CString WrapPasteText(const char* str, int column, int limit, const char* enter, UINT codePage)
+{
+	CString result;
+	const char* end = str + strlen(str);
+	while (str < end)
+	{
+		if (end - str >= 2 && str[0] == '\r' && str[1] == '\n')
+		{
+			result += enter;
+			column = 0;
+			str += 2;
+			continue;
+		}
+		int bytes = 1, width = 1;
+		const BYTE first = static_cast<BYTE>(*str);
+		if (first < 0x7f)
+		{
+			while (str + bytes < end && str[bytes] != '\r' && str[bytes] != ' ' &&
+				static_cast<BYTE>(str[bytes]) < 0x80) ++bytes;
+			if (str + bytes < end && str[bytes] == ' ') ++bytes;
+			width = bytes;
+		}
+		else if (codePage == CP_UTF8)
+		{
+			bytes = static_cast<int>(Sgr66::CharacterLength(str, end - str, codePage));
+			TerminalCells::Utf8Decoder decoder;
+			auto measure = [&](char32_t scalar) { width = TerminalCells::Width(scalar); };
+			for (int i = 0; i < bytes; ++i) decoder.Feed(static_cast<BYTE>(str[i]), measure);
+			decoder.Finish(measure);
+		}
+		else
+		{
+			bytes = codePage == 950 ? static_cast<int>(Sgr66::CharacterLength(str, end - str, codePage)) :
+				(end - str >= 2 && IsDBCSLeadByteEx(codePage, first) ? 2 : 1);
+			width = bytes;
+		}
+		if (column + width > limit) { result += enter; column = 0; }
+		result.Append(str, bytes);
+		str += bytes;
+		column += width;
+	}
+	return result;
 }
 
 int CTelnetConn::SendString(LPCTSTR str)
@@ -1215,38 +1538,7 @@ int CTelnetConn::SendString(LPCTSTR str)
 
 	if (AppConfig.site_settings.paste_autowrap)	//如果使用自動換行
 	{
-		while (*str)
-		{
-			if (*str == 13 && *(str + 1) == 10)
-			{
-				str += 2;
-				data += enter;
-				l = 0;
-			}
-			else
-			{
-				int w = get_chw(LPSTR(str));
-				if (w == 1)
-				{
-					while (str[w] && str[w] != 0x0d && str[w] != ' ' &&
-						   isascii((unsigned char)str[w]))
-						w++;
-					if (str[w] == ' ')
-						w++;
-				}
-				if ((l + w) > limit)
-				{
-					data += enter;
-					l = 0;
-				}
-
-				for (int i = 0; i < w; i++)
-					data += str[i];
-
-				str += w;
-				l += w;
-			}
-		}
+		data = WrapPasteText(str, l, limit, enter, view->GetCodePage());
 	}
 	else	//如果不用自動換行
 	{
@@ -1299,8 +1591,32 @@ BOOL CTelnetConn::Create()
 	return TRUE;
 }
 
+void CTelnetConn::ShiftUtf8Cells(int count, bool insert)
+{
+	const int cols = site_settings.cols_per_page;
+	const int x = (std::clamp)(static_cast<int>(cursor_pos.x), 0, cols);
+	count = (std::min)((std::max)(1, count), cols - x);
+	if (!count) return;
+	char* row = screen[cursor_pos.y];
+	const auto viewBefore = ReadUtf8Source(row).ReadUtf8(cols);
+	if (!encoded_rows.TryEdit(row, [&](const TerminalCells::EncodedRow&) {
+		return TerminalCells::EncodedRow::Shift(viewBefore, x, count, insert);
+	})) return StopForSourceLimit();
+	const int from = insert ? x : x + count;
+	const int to = insert ? x + count : x;
+	const int length = cols - x - count;
+	// A wide character crossing either cut becomes blank on both sides.
+	for (int cut : {x, insert ? cols - count : from})
+		if (cut < cols && viewBefore.At(cut).continuation) osc_links.Erase(row, cut - 1, 2);
+	osc_links.Copy(row, to, row, from, length, cols);
+	osc_links.Erase(row, insert ? x : cols - count, count);
+	MirrorUtf8Row(row);
+	SetUpdateWholeLine(cursor_pos.y);
+}
+
 void CTelnetConn::InsertChar(int n)
 {
+	if (view->GetCodePage() == CP_UTF8) { ShiftUtf8Cells(n, true); return; }
 	if (n <= 0)
 		n = 1;
 	if (cursor_pos.x + n > site_settings.cols_per_page)
@@ -1425,6 +1741,7 @@ void CTelnetConn::RestoreCursorPos()
 
 void CTelnetConn::DeleteChar(int n)	//Delete a character position (shift line to the left)
 {
+	if (!is_ansi_editor && view->GetCodePage() == CP_UTF8) { ShiftUtf8Cells(n, false); return; }
 	Delete(n);
 }
 void CTelnetConn::NextPages(int n)
@@ -1457,7 +1774,15 @@ void CTelnetConn::ResetMode(int p)
 }
 void CTelnetConn::DeviceStatusReport(int p)
 {
-
+	if (p != 6 || is_ansi_editor || is_disconnected) return;
+	const int rows = site_settings.lines_per_page;
+	const int cols = site_settings.cols_per_page;
+	if (rows < 1 || cols < 1) return;
+	const long row = (std::clamp)(cursor_pos.y - first_line, 0L, static_cast<long>(rows - 1)) + 1;
+	const long column = (std::clamp)(cursor_pos.x, 0L, static_cast<long>(cols - 1)) + 1;
+	char report[32];
+	const int length = sprintf_s(report, "\x1b[%ld;%ldR", row, column);
+	if (length > 0) Send(report, length);
 }
 
 void CTelnetConn::PrevPages(int n)
@@ -1479,8 +1804,19 @@ inline void CTelnetConn::ProcessAnsiEscapeSequence()
 		// numeric dispatcher. Keep this guard for unrecognized private sequences.
 		if (*param == '?')
 			return;
+		if (type == 'n')
+		{
+			// CPR takes one numeric parameter. Test before the legacy parser
+			// discards extra parameters or treats an empty field as zero.
+			while (param < pansi_param && *param == '0') ++param;
+			if (pansi_param - param == 1 && *param == '6')
+				DeviceStatusReport(6);
+			return;
+		}
 		if (type == 'r' && std::count(param, pansi_param, ';') > 1)
 			return; // DECSTBM accepts at most two parameters.
+		if (type == 'K' && std::find(param, pansi_param, ';') != pansi_param)
+			return; // EL has a single mode.
 
 		*pansi_param = ';';
 
@@ -1516,7 +1852,7 @@ inline void CTelnetConn::ProcessAnsiEscapeSequence()
 			switch (type)
 			{
 			case 'K':
-				ClearCurrentLine(atoi(param));
+				ClearCurrentLine(p1);
 				break;
 //------------ 2 parameters ---------------
 			case 'H':
@@ -1587,9 +1923,6 @@ inline void CTelnetConn::ProcessAnsiEscapeSequence()
 				break;
 			case 'l':	//reset mode
 				ResetMode(p1);
-				break;
-			case 'n':	//Device Status Report
-				DeviceStatusReport(p1);
 				break;
 			default:
 				{
@@ -1708,6 +2041,7 @@ char* CTelnetConn::ResizeLine(int line, int newl)
 	}
 	osc_links.Copy(newstr, 0, str, 0, (std::min)(static_cast<int>(site_settings.cols_per_page), newl), newl);
 	osc_links.Clear(str);
+	encoded_rows.Move(newstr, str);
 	delete []str;
 	*(DWORD*)(newatb + newl) = d;
 	return newstr;
@@ -1716,6 +2050,13 @@ char* CTelnetConn::ResizeLine(int line, int newl)
 
 void CTelnetConn::ReSizeBuffer(long new_line_count, int new_cols_per_page, int new_lines_per_page)
 {
+	if (source_limit_stopped) return;
+	if (new_cols_per_page < site_settings.cols_per_page && encoded_rows.StoredRows() &&
+		!encoded_rows.TryCropAll([&](const TerminalCells::EncodedRow& row) {
+			if (view->GetCodePage() == CP_UTF8) return row.ReadUtf8(new_cols_per_page);
+			return row.ReadLegacy(new_cols_per_page, TerminalCells::WindowsRowDecoder(view->GetCodePage(), g_ucs2conv));
+		})) return; // projection refused: preserve source, screen, cursor and active snapshot
+	FinishReceivedText();
 	// Saved row layout is invalid after a terminal-size change. Keep copying
 	// blocked until a real sync end, even though presentation must resume.
 	if (sync_output.Active()) sync_output.Abort();
@@ -1753,10 +2094,11 @@ void CTelnetConn::ReSizeBuffer(long new_line_count, int new_cols_per_page, int n
 			for (int i = 0;i < new_line_count;i++)
 				new_screen[i] = ResizeLine(i, new_cols_per_page);
 
-			for (;last_line >= new_line_count; last_line--)
+			for (long removed = site_settings.line_count - 1; removed >= new_line_count; --removed)
 			{
-				osc_links.Clear(screen[last_line]);
-				delete []screen[last_line];
+				encoded_rows.Erase(screen[removed]);
+				osc_links.Clear(screen[removed]);
+				delete []screen[removed];
 			}
 
 			delete []screen;
@@ -1887,7 +2229,30 @@ inline void CTelnetConn::EditorCarriageRetiurn()
 				scroll_pos++;
 		}
 	}
-	else if (IsEmptyLine(screen[cursor_pos.y] + cursor_pos.x, site_settings.cols_per_page))
+	else if (view->GetCodePage() == CP_UTF8)
+	{
+		const int cols = site_settings.cols_per_page;
+		const int x = (std::min)(static_cast<int>(cursor_pos.x), cols);
+		char* row = screen[cursor_pos.y];
+		const auto original = ReadUtf8Source(row);
+		const auto before = original.ReadUtf8(cols);
+		int last = cols;
+		while (last > x && before.At(last - 1).text == U" " && before.At(last - 1).style.attribute == 7) --last;
+		EditorLineFeed(NULL, NULL, 0);
+		if (last > x)
+		{
+			char* next = screen[cursor_pos.y];
+			std::map<const void*, TerminalCells::EncodedRow> edits;
+			edits.emplace(row, original.SliceUtf8(cols, 0, x));
+			edits.emplace(next, original.SliceUtf8(cols, x, last));
+			if (!encoded_rows.CommitRows(edits, [] {})) return StopForSourceLimit();
+			osc_links.Copy(next, 0, row, x, last - x, cols);
+			osc_links.Erase(row, x, cols - x);
+			MirrorUtf8Row(row);
+			MirrorUtf8Row(next);
+		}
+	}
+	else if (IsEmptyLine(screen[cursor_pos.y] + cursor_pos.x, site_settings.cols_per_page - cursor_pos.x))
 		EditorLineFeed(NULL, NULL, 0);
 	else
 	{
@@ -1904,6 +2269,34 @@ inline void CTelnetConn::EditorCarriageRetiurn()
 
 inline void CTelnetConn::EditorLineBack(LPSTR newline, LPBYTE newlineatb, int l)
 {
+	if (view->GetCodePage() == CP_UTF8)
+	{
+		const int cols = site_settings.cols_per_page;
+		const int x = cursor_pos.x;
+		char* previous = screen[cursor_pos.y];
+		const auto source = ReadUtf8Source(newline);
+		const auto cells = source.ReadUtf8(cols);
+		int end = cols;
+		while (end && cells.At(end - 1).text == U" " && cells.At(end - 1).style.attribute == 7) --end;
+		int move = (std::min)(end, cols - x);
+		if (move < end && cells.At(move).continuation) --move;
+		if (move > 0)
+		{
+			std::map<const void*, TerminalCells::EncodedRow> edits;
+			edits.emplace(previous, ReadUtf8Source(previous).ReplaceUtf8(cols, x, x + move, source.SliceUtf8(cols, 0, move)));
+			edits.emplace(newline, source.SliceUtf8(cols, move, end));
+			if (!encoded_rows.CommitRows(edits, [] {})) return StopForSourceLimit();
+			osc_links.Copy(previous, x, newline, 0, move, cols);
+			osc_links.Copy(newline, 0, newline, move, end - move, cols);
+			osc_links.Erase(newline, end - move, cols - (end - move));
+			MirrorUtf8Row(previous);
+			MirrorUtf8Row(newline);
+			SetUpdateWholeLine(cursor_pos.y);
+			SetUpdateWholeLine(cursor_pos.y + 1);
+		}
+		if (move < end) return;
+		l = 0;
+	}
 	if (l)
 	{
 		int space = site_settings.cols_per_page - cursor_pos.x;
@@ -1937,6 +2330,7 @@ inline void CTelnetConn::EditorLineBack(LPSTR newline, LPBYTE newlineatb, int l)
 
 	memset(newline, ' ', site_settings.cols_per_page);
 	osc_links.Clear(newline);
+	encoded_rows.Erase(newline);
 	*(DWORD*)(newline + site_settings.cols_per_page) = 0;
 	memset(newlineatb, 7, site_settings.cols_per_page);
 	*(DWORD*)(newlineatb + site_settings.cols_per_page) = 0;
@@ -1959,7 +2353,6 @@ void CTelnetConn::Back(int num)
 {
 	if (cursor_pos.x > 0)
 	{
-		LPSTR curstr = screen[cursor_pos.y];
 		cursor_pos.x -= num;
 		if (is_ansi_editor || site_settings.localecho)
 			Delete(num);	//Delete
@@ -2029,7 +2422,7 @@ void CTelnetConn::CheckHyperLinks()
 			// 如果找到超連結，設定超連結旗標
 			// 如果沒找到，清除超連結旗標
 			int len;
-			SetHyperLink(i, osc_links.Overlaps(screen[i], 0, site_settings.cols_per_page) ||
+			SetHyperLink(i, view->GetCodePage() == CP_UTF8 || osc_links.Overlaps(screen[i], 0, site_settings.cols_per_page) ||
 				!!AppConfig.hyper_links.FindHyperLink(screen[i], len));
 		}
 	}
@@ -2038,6 +2431,7 @@ void CTelnetConn::CheckHyperLinks()
 
 void CTelnetConn::Delete(int num)
 {
+	if (is_ansi_editor && view->GetCodePage() == CP_UTF8) { ShiftUtf8Cells(num, false); return; }
 	if (num <= 0)	num = 1;
 	LPSTR curstr = screen[cursor_pos.y];
 	if (cursor_pos.x > site_settings.cols_per_page)
@@ -2064,10 +2458,20 @@ void CTelnetConn::Delete(int num)
 
 void CTelnetConn::End()
 {
+	if (is_ansi_editor && view->GetCodePage() == CP_UTF8)
+	{
+		const int cols = site_settings.cols_per_page;
+		const auto row = ReadUtf8Source(screen[cursor_pos.y]).ReadUtf8(cols);
+		int end = cols;
+		while (end && row.At(end-1).text == U" " && row.At(end-1).style.attribute == 7) --end;
+		cursor_pos.x = end;
+		UpdateCursorPos();
+		return;
+	}
 	LPSTR curstr = screen[cursor_pos.y];
 	int end = site_settings.cols_per_page - 1;
 	LPBYTE attrib = GetLineAttr(cursor_pos.y);
-	while (curstr[end] == ' ' && end >= 0 && attrib[end] == 7)
+	while (end >= 0 && curstr[end] == ' ' && attrib[end] == 7)
 		end--;
 	cursor_pos.x = end + 1;
 	UpdateCursorPos();
@@ -2144,6 +2548,12 @@ ArticleProgress::Progress CTelnetConn::GetArticleProgress()
 	if (!screen || last_line < 0 || last_line >= site_settings.line_count ||
 		site_settings.cols_per_page <= 0)
 		return ArticleProgress::Progress();
+	if (view->GetCodePage() == CP_UTF8)
+	{
+		const auto footer = ReadUtf8Source(screen[last_line]).ReadUtf8(site_settings.cols_per_page);
+		const auto bytes = footer.RawText(0, footer.Columns());
+		return ArticleProgress::Parse(bytes.data(), bytes.size());
+	}
 	return ArticleProgress::Parse(screen[last_line], site_settings.cols_per_page);
 }
 
@@ -2152,6 +2562,35 @@ bool CTelnetConn::UseSgr66() const
 	const UINT cp = view->GetCodePage();
 	return (cp == 950 || cp == CP_UTF8) && Sgr66::Enabled(AppConfig.ansi_output_format,
 		address.IsValid() && KeepAlive::IsPttHost(LPCTSTR(address.Server())), is_ansi_editor);
+}
+
+CString CTelnetConn::GetUtf8Range(long line, int begin, int finish, bool withColor)
+{
+	const auto row = ReadUtf8Source(screen[line]).ReadUtf8(site_settings.cols_per_page);
+	std::string bytes = row.RawText(begin, finish);
+	if (withColor)
+	{
+		std::vector<BYTE> attributes;
+		for (int x = begin; x < finish; ++x)
+		{
+			const auto& cell = row.At(x);
+			if (cell.continuation || x + static_cast<int>(cell.width) > finish) continue;
+			const auto range = row.Source(x);
+			attributes.insert(attributes.end(), (std::max)(size_t(1), range.end - range.begin), cell.style.attribute);
+		}
+		const int size = static_cast<int>(bytes.size());
+		bytes = size ? Sgr66::EncodeRange(bytes.data(), attributes.data(), size, 0, size, CP_UTF8) : "\x1b[m";
+	}
+	else
+		bytes.erase(bytes.find_last_not_of(' ') + 1);
+	return CString(bytes.data(), static_cast<int>(bytes.size()));
+}
+
+CString CTelnetConn::GetArticleLine(long line, bool withColor)
+{
+	if (view->GetCodePage() == CP_UTF8)
+		return GetUtf8Range(line, 0, site_settings.cols_per_page, withColor);
+	return withColor ? GetLineWithAnsi(line) : CString(screen[line]);
 }
 
 CString CTelnetConn::GetLineWithAnsi(long line)
@@ -2285,10 +2724,7 @@ void CTelnetConn::CopyArticle(bool with_color, bool in_editor)
 	get_article_with_ansi = with_color;
 	for (int y = scroll_pos; y < last_line; ++y)
 	{
-		if (!with_color)
-			downloaded_article += screen[y];
-		else
-			downloaded_article += GetLineWithAnsi(y);
+		downloaded_article += GetArticleLine(y, with_color);
 		downloaded_article.TrimRight(" ");
 		downloaded_article += "\r\n";
 	}
@@ -2315,7 +2751,7 @@ void CTelnetConn::ContinueCopyArticle()
 	current_download_line = progress.last;
 	for (int y = last_line - count; y < last_line; ++y)
 	{
-		downloaded_article += get_article_with_ansi ? GetLineWithAnsi(y) : CString(screen[y]);
+		downloaded_article += GetArticleLine(y, get_article_with_ansi);
 		downloaded_article.TrimRight(" ");
 		downloaded_article += "\r\n";
 	}

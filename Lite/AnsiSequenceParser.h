@@ -2,9 +2,10 @@
 #include <string>
 
 // Streaming parser for 7-bit ESC/CSI sequences and bounded OSC commands.
-// No platform or UI dependencies. OSC payload is never executed as CSI.
-// Outside OSC, bytes >= 0x80 remain text (Big5/UAO and UTF-8 are not C1 controls).
-// OSC interpretation belongs to the consumer; DCS remains outside this scope.
+// No platform or UI dependencies. Control-string payload never executes CSI.
+// Outside strings, bytes >= 0x80 remain text (encoded text is not C1 controls).
+// OSC interpretation belongs to the consumer. DCS/SOS/PM/APC are only discarded,
+// not implemented; no payload is buffered, interpreted or returned to a caller.
 class AnsiSequenceParser
 {
 public:
@@ -26,6 +27,18 @@ public:
 
 	Result Feed(unsigned char byte)
 	{
+		// Unsupported 7-bit control strings are opaque through ST or CAN/SUB.
+		// In particular BEL, CR/LF and embedded ESC [ must not escape into the
+		// text/CSI path. Keep only an ESC flag, even for arbitrarily long input.
+		// As with OSC, a lone ESC inside payload does not restart ANSI parsing.
+		if (state == OpaqueString || state == OpaqueEscape)
+		{
+			if (byte == 0x18 || byte == 0x1a || (state == OpaqueEscape && byte == '\\'))
+				state = Ground;
+			else
+				state = byte == 0x1b ? OpaqueEscape : OpaqueString;
+			return Consumed;
+		}
 		// Handle OSC before generic ESC/C0/high-byte processing. Payload may
 		// contain any of them, but must not draw, ring BEL or dispatch CSI.
 		// Keep discarding oversized/unfinished strings through their terminator.
@@ -69,6 +82,11 @@ public:
 			return Text;
 		}
 
+		if (state == Escape && (byte == 'P' || byte == 'X' || byte == '^' || byte == '_'))
+		{
+			state = OpaqueString; // DCS / SOS / PM / APC (7-bit introducers only).
+			return Consumed;
+		}
 		if (state == Escape && byte == ']')
 		{
 			osc.clear();
@@ -128,7 +146,8 @@ public:
 	bool OscValid() const { return oscValid; }
 
 private:
-	enum State { Ground, Escape, EscapeIntermediate, Parameters, Intermediate, OscString, OscEscape };
+	enum State { Ground, Escape, EscapeIntermediate, Parameters, Intermediate,
+		OscString, OscEscape, OpaqueString, OpaqueEscape };
 	State state;
 	char sequence[64]; // Includes the '[' for CSI and a trailing NUL.
 	unsigned int length;

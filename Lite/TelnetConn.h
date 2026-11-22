@@ -13,6 +13,7 @@
 #include <winsock2.h>
 // #include <WS2TCPIP.h> // for future IPV6 support
 
+#include "EncodedTextDecoder.h"
 #include "Conn.h"
 #include "SiteSettings.h"
 #include "KeyMap.h"	// Added by ClassView
@@ -23,6 +24,7 @@
 #include "ArticleProgress.h"
 #include "SynchronizedOutput.h"
 #include "OscHyperlinks.h"
+#include "EncodedRowStorage.h"
 #include "Sgr66.h"
 
 /////////////////////////////////////////////////////////////////////////////
@@ -106,10 +108,31 @@ public:
 
 	char ansi_param[64];	//用來處理ANSI彩色字串的暫存buffer
 	char* pansi_param;		//用來操作ansi_param資料的指標
-	AnsiSequenceParser ansi_parser; // Separate from the Telnet IAC buffer.
+	AnsiSequenceParser local_parser, ansi_parser; // Separate from the Telnet IAC buffer.
 	SynchronizedOutput sync_output;
 	OscHyperlinks osc_links, osc_snapshot;
+private:
+	// Row identity follows the allocation, not its index in the screen array.
+	// Empty rows allocate no source payload. The limit counts original bytes,
+	// not process RAM. No receive-side writer until failure handling is wired.
+	TerminalCells::EncodedRowStorage encoded_rows{MAX_LINE_COUNT, MAX_LINE_COUNT * 160u};
+public:
+	bool source_limit_stopped = false;
+	void StopForSourceLimit();
 	Sgr66::PendingAttribute sgr66_attribute;
+	TerminalCells::EncodedTextDecoder utf8_decoder;
+    OscHyperlinks::Target utf8_prefix_link;
+    void WriteUtf8Glyph(const TerminalCells::EncodedTextDecoder::Glyph&, const OscHyperlinks::Target&,
+        const TerminalCells::EncodedTextDecoder::Glyph* second = nullptr);
+    void FinishReceivedText();
+    TerminalCells::EncodedRow ReadUtf8Source(const char* row);
+    void MirrorUtf8Row(char* row);
+    bool HasUtf8Blink(const char* row);
+    BYTE pending_big5 = 0, pending_big5_attr = 7;
+	OscHyperlinks::Target pending_big5_link;
+	void FinishBig5Text();
+	bool legacy_run_start = true;
+	void WriteReceivedGlyph(BYTE value, BYTE attr, const OscHyperlinks::Target& link, bool pair);
 	int remote_line_wrap = -1; // -1: local preference; 0/1: per-session DECAWM.
 	int sync_scroll_pos = 0;
 	void BeginSynchronizedOutput();
@@ -144,6 +167,8 @@ public:
 	void CopyArticleComplete(bool cancel = false);
 	void CopyArticle(bool with_color, bool in_editor);
 	CString GetLineWithAnsi(long line);
+	CString GetUtf8Range(long line, int begin, int finish, bool withColor);
+	CString GetArticleLine(long line, bool withColor);
 	bool UseSgr66() const;
 	int IsEndOfArticleReached();
 	ArticleProgress::Progress GetArticleProgress();
@@ -191,6 +216,7 @@ public:
 	void SaveCursorPos();
 	void RestoreCursorPos();
 	void InsertChar(int n);
+	void ShiftUtf8Cells(int count, bool insert);
 	void DeleteLines(int n);
 	void DeleteChar(int n);
 	void NextPages(int n);
@@ -224,7 +250,7 @@ public:
 	void UpdateLine(int line);
 	void OnClose();
 	void UpdateCursorPos();
-	void OnText();
+	void OnText(bool fromNetwork = false);
 	void OnIAC();
 
 	void ClearAllFlags()
@@ -234,7 +260,13 @@ public:
 		osc_links.Reset();
 		osc_snapshot.Reset();
 		sgr66_attribute.Reset();
+		utf8_decoder.Reset();
+		utf8_prefix_link.reset();
+		legacy_run_start = true;
+		pending_big5 = 0;
+		pending_big5_link.reset();
 		remote_line_wrap = -1;
+		local_parser.Reset();
 		ansi_parser = AnsiSequenceParser();
 		is_telnet = true;
 
@@ -304,6 +336,7 @@ inline LPBYTE CTelnetConn::GetLineAttr(const int line, const int len)
 
 inline void CTelnetConn::InitNewLine(char *line)
 {
+	encoded_rows.Erase(line);
 	osc_links.Clear(line);
 	LPBYTE attr = GetLineAttr(line);
 	memset(line, ' ', site_settings.cols_per_page);

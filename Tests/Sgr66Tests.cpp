@@ -1,3 +1,5 @@
+#include "../Lite/EncodedRowStorage.h"
+#include "../Lite/EncodedTextDecoder.h"
 #include <afx.h>
 #include <commctrl.h>
 #include <mmsystem.h>
@@ -9,6 +11,8 @@
 #include <vector>
 #include <algorithm>
 #include "../Lite/Sgr66.h"
+#include "../Lite/Ucs2Conv.h"
+#include "../Lite/TerminalCellModel.h"
 #include "../Lite/SynchronizedOutput.h"
 #include "../Lite/KeepAlive.h"
 #include "../Lite/OscHyperlinks.h"
@@ -44,6 +48,8 @@ struct CTermView
     void UpdateWindow() {}
     UINT GetCodePage() { return codePage; }
     CString GetSelAnsi();
+    CString GetUtf8Selection(bool);
+    DWORD paste_block = 0;
     void SendAnsiString(CString);
 };
 struct { struct { BOOL paste_autowrap = TRUE; } site_settings; int ansi_output_format = 0, sound = 0; CString wavepath; } AppConfig;
@@ -52,8 +58,23 @@ class CTelnetConn
 public:
     BYTE cur_attr = 7, attr_flags = 0;
     Sgr66::PendingAttribute sgr66_attribute;
+    TerminalCells::EncodedTextDecoder utf8_decoder;
+    OscHyperlinks::Target utf8_prefix_link;
+    void WriteUtf8Glyph(const TerminalCells::EncodedTextDecoder::Glyph&, const OscHyperlinks::Target&,
+        const TerminalCells::EncodedTextDecoder::Glyph* second = nullptr);
+    void FinishReceivedText();
+    bool source_limit_stopped = false;
+    void StopForSourceLimit() { source_limit_stopped = true; }
+    TerminalCells::EncodedRow ReadUtf8Source(const char* row);
+    void MirrorUtf8Row(char* row);
+    BYTE pending_big5 = 0, pending_big5_attr = 7;
+    OscHyperlinks::Target pending_big5_link;
+    void FinishBig5Text();
+    bool legacy_run_start = true;
+    void WriteReceivedGlyph(BYTE, BYTE, const OscHyperlinks::Target&, bool);
+    TerminalCells::EncodedRowStorage encoded_rows{64,10000};
     int remote_line_wrap = -1;
-    struct Settings { int cols_per_page = 8; long line_count = 2; bool line_wrap = false; CString esc_convert = "\x15"; } site_settings;
+    struct Settings { int cols_per_page = 8, lines_per_page = 2; long line_count = 2; bool line_wrap = false; CString esc_convert = "\x15"; } site_settings;
     char text[9] = {};
     BYTE colors[8] = {};
     char second[9] = {};
@@ -75,16 +96,16 @@ public:
     bool sel_block = false;
     SynchronizedOutput sync_output;
     OscHyperlinks osc_links;
-    AnsiSequenceParser ansi_parser;
+    AnsiSequenceParser local_parser, ansi_parser;
     BYTE* buf = nullptr;
     BYTE* last_byte = nullptr;
     char ansi_param[64] = {};
     char* pansi_param = ansi_param;
     CPoint cursor_pos = CPoint(0,0), old_cursor_pos = CPoint(0,0);
-    int first_line = 0, last_line = 1;
+    int first_line = 0, last_line = 1, scr_top = 0, scr_bottom = 1;
     BYTE saved_attr = 7;
     bool insert_mode = false, is_getting_article = false;
-    void OnText();
+    void OnText(bool fromNetwork = false);
     void ProcessAnsiEscapeSequence();
     void CheckSynchronizedOutputTimeout() {}
     void BeginSynchronizedOutput() { sync_output.Begin(0, screen, 2, 9); }
@@ -123,7 +144,7 @@ public:
     void ScrollDown() {}
     void Feed(std::string input)
     {
-        buf = reinterpret_cast<BYTE*>(&input[0]); last_byte = buf + input.size(); OnText();
+        buf = reinterpret_cast<BYTE*>(&input[0]); last_byte = buf + input.size(); OnText(true);
     }
     std::string sent;
     BOOL wrapDuringSend = TRUE;
@@ -135,6 +156,7 @@ public:
     static void SetFgColor(BYTE& attr, BYTE color) { attr = (attr & 248) | color; }
     void SetCurrentAttributes(USHORT);
     CString GetLineWithAnsi(long);
+    CString GetUtf8Range(long, int, int, bool);
 };
 // Keep real native menu APIs; intercept only the modal help window.
 class CMainFrame
@@ -315,9 +337,24 @@ static void CheckRoundTrip(const std::string& encoded, const std::string& text,
     }
 }
 
+static void CheckUtf8Selection()
+{
+    CTelnetConn utf8;
+    utf8.ui.codePage = CP_UTF8;
+    const std::string wide = "\xe4\xb8\xad";
+    utf8.Feed(wide + wide + "\x1b[31m" + wide + "A");
+    utf8.sel_start = CPoint(7, 0);
+    utf8.sel_end = CPoint(4, 0);
+    Check(utf8.ui.GetUtf8Selection(false) == (wide + "A").c_str(), "reverse UTF-8 selection extends beyond mirror byte limit");
+    Check(utf8.ui.GetSelAnsi() == ("\x1b[m\x1b[0;31;40m" + wide + "A\x1b[m").c_str(), "UTF-8 color selection preserves the complete red glyph");
+    utf8.sel_end.x = 5;
+    Check(utf8.ui.GetUtf8Selection(false) == "A", "selection omits the unselected half of a wide glyph");
+}
+
 int main()
 {
     CheckOutputMenu();
+    CheckUtf8Selection();
     CTelnetConn conn;
     std::memset(conn.text, ' ', 8);
     std::memset(conn.colors, 7, 8);
@@ -454,11 +491,21 @@ int main()
     }
     CTelnetConn utf8Receiver;
     utf8Receiver.ui.codePage=65001;
+    std::fill_n(utf8Receiver.text, 8, ' ');
+    std::fill_n(utf8Receiver.colors, 8, static_cast<BYTE>(7));
     utf8Receiver.Feed("\x1b[1;37;66;33m"+utf8);
     Check(utf8Receiver.colors[0]==11 && utf8Receiver.colors[1]==11 && utf8Receiver.colors[2]==11, "UTF8 receive keeps documented single-color fallback");
     CTelnetConn opaque;
     opaque.Feed("\x1b]0;\x1b[31;66;32m\x07X");
     Check(opaque.colors[0]==7 && opaque.text[0]=='X', "real OnText OSC cannot inject SGR66");
+    for (char kind : std::string("PX^_"))
+    {
+        CTelnetConn receiver;
+        receiver.Feed(std::string("\x1b[31;66;32m\xa4\x1b") + kind +
+            "\x1b[37;66;34m\a\r\n\x1b\\\xa4");
+        Check(std::string(receiver.text,2)=="\xa4\xa4" && receiver.colors[0]==1 && receiver.colors[1]==2,
+            "real OnText opaque string cannot inject SGR66 or control bytes into Big5 pair");
+    }
     bytewise.sgr66_attribute.Capture(1); bytewise.sgr66_attribute.Reset();
     Check(bytewise.sgr66_attribute.Take(7)==7, "pending reset for connection lifecycle");
     AppConfig.ansi_output_format=Sgr66::Legacy;

@@ -17,6 +17,10 @@
 class CUcs2Conv
 {
 public:
+	static bool IsBig5Pair(unsigned char lead, unsigned char trail)
+	{
+		return lead >= 0x81 && lead <= 0xfe && trail >= 0x40 && trail <= 0xfe;
+	}
 	void Big52Ucs2(const char* text_in, wchar_t* text_out);
 	size_t Big52Ucs2(const char* text_in, wchar_t* text_out, int len);
 	void Ucs22Big5(const wchar_t* text_in, char* text_out);
