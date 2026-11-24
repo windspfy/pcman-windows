@@ -1621,7 +1621,7 @@ BOOL CMainFrame::LoadUI()
 	auto_dbcs_menu = GetSubMenu(GetSubMenu(main_menu, 2), 7);
 	ansi_menu =::GetSubMenu(main_menu, 5);
 	AppendAnsiOutputMenu(main_menu);
-	::AppendMenuW(::GetSubMenu(main_menu, 2), MF_STRING, ID_PTT_FILTER, L"PTT／PTT2 黑名單與關鍵字…");
+	::AppendMenuW(::GetSubMenu(main_menu, 2), MF_STRING, ID_PTT_FILTER, L"PTT／PTT2 名單與關鍵字…");
 	bbs_fav_menu =::GetSubMenu(main_menu, 3);
 
 	MENUITEMINFO inf;
